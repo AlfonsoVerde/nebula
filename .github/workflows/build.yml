@@ -1,0 +1,23 @@
+name: Build Nebula.dmg
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build app (universal)
+        run: UNIVERSAL=1 ./build.sh
+      - name: Make DMG
+        run: |
+          mkdir -p dmg
+          cp -R build/Nebula.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "Nebula" -srcfolder dmg -ov -format UDZO build/Nebula.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nebula-dmg
+          path: build/Nebula.dmg
