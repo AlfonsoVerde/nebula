@@ -5,71 +5,119 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private let hotKey = HotKey()
+    private let trigger = TriggerMonitor()
+    private let pasteKey = HotKey()
     private let nebula = NebulaController()
+    private let loader = PointerLoader()
+    private let history = ClipboardHistory()
     private let settings = AppSettings.shared
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
+    private var pendingShow: Task<Void, Never>?
+
+    static let loaderDuration = 1.5
+    /// Tiny grace before showing in Finder, so ⌥+key combos and ⌥-clicks don't flash the nebula.
+    static let finderGrace: UInt64 = 120_000_000
 
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildStatusItem()
 
-        // Finder → right click → Services / Quick Actions → "Converti con Nebula"
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
 
-        // Hold the shortcut → nebula appears; release → convert to the pointed format.
-        hotKey.onPress = { [weak self] in self?.shortcutPressed() }
-        hotKey.onRelease = { [weak self] in self?.nebula.release() }
+        history.start()
+        nebula.onPaste = { [weak self] entry in self?.history.paste(entry) }
 
-        Publishers.CombineLatest3(settings.$shortcut, settings.$finderOnly, settings.$recording)
-            .sink { [weak self] shortcut, finderOnly, recording in
-                self?.updateHotKey(shortcut: shortcut, finderOnly: finderOnly, recording: recording)
+        trigger.onPress = { [weak self] in self?.triggerDown() }
+        trigger.onRelease = { [weak self] in self?.triggerUp() }
+        trigger.onInterrupt = { [weak self] in self?.triggerInterrupted() }
+        trigger.onFlags = { [weak self] flags in self?.flagsChanged(flags) }
+        trigger.start()
+        settings.$trigger
+            .sink { [weak self] key in self?.trigger.key = key }
+            .store(in: &cancellables)
+
+        pasteKey.onPress = { [weak self] in self?.showPasteNebula() }
+        Publishers.CombineLatest(settings.$pasteShortcut, settings.$recording)
+            .sink { [weak self] shortcut, recording in
+                if recording { self?.pasteKey.unregister() } else { self?.pasteKey.register(shortcut) }
             }
             .store(in: &cancellables)
 
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
-                                                          object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshHotKey() }
-        }
-
-        if !UserDefaults.standard.bool(forKey: "launchedBefore") {
-            UserDefaults.standard.set(true, forKey: "launchedBefore")
+        if !Accessibility.isTrusted { Accessibility.prompt() }
+        if !UserDefaults.standard.bool(forKey: "launchedV3") {
+            UserDefaults.standard.set(true, forKey: "launchedV3")
             openSettings()
         }
     }
 
     /// Files dropped on the app icon or opened with "Apri con".
     func application(_ application: NSApplication, open urls: [URL]) {
-        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: false)
+        nebula.present(files: urls, fromClipboard: false, at: NSEvent.mouseLocation, holding: false)
     }
 
-    // MARK: - Hotkey
+    // MARK: - Trigger key
 
-    private func refreshHotKey() {
-        updateHotKey(shortcut: settings.shortcut, finderOnly: settings.finderOnly, recording: settings.recording)
-    }
+    private func triggerDown() {
+        guard !settings.recording, !nebula.isVisible, NSEvent.pressedMouseButtons == 0 else { return }
 
-    /// With "solo nel Finder" the shortcut is registered only while Finder is in front,
-    /// so ⌥Space keeps working normally in every other app.
-    private func updateHotKey(shortcut: Shortcut, finderOnly: Bool, recording: Bool) {
-        let active = !recording && (!finderOnly || FinderBridge.finderIsFrontmost)
-        if active { hotKey.register(shortcut) } else { hotKey.unregister() }
-    }
-
-    private func shortcutPressed() {
-        if nebula.isVisible {
-            nebula.dismiss()
-            return
+        // Finder with a selection → nebula right away.
+        if FinderBridge.finderIsFrontmost {
+            let urls = FinderBridge.selection()
+            if !urls.isEmpty {
+                pendingShow = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: Self.finderGrace)
+                    guard !Task.isCancelled, let self, NSEvent.pressedMouseButtons == 0 else { return }
+                    self.nebula.present(files: urls, fromClipboard: false, at: NSEvent.mouseLocation, holding: true)
+                }
+                return
+            }
         }
-        let urls = FinderBridge.selection()
-        guard !urls.isEmpty else {
+
+        // Anywhere else → loader around the pointer, then the clipboard.
+        guard settings.clipboardOutsideFinder else { return }
+        loader.start(duration: Self.loaderDuration) { [weak self] in
+            self?.showClipboardNebula()
+        }
+    }
+
+    private func showClipboardNebula() {
+        guard let source = ClipboardSource.materialize() else {
             NSSound.beep()
             return
         }
-        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: true)
+        nebula.present(files: source.urls, fromClipboard: source.temporary, at: NSEvent.mouseLocation, holding: true)
+    }
+
+    private func triggerUp() {
+        pendingShow?.cancel()
+        loader.cancel()
+        if !nebula.isPasteMode { nebula.release() }
+    }
+
+    private func triggerInterrupted() {
+        pendingShow?.cancel()
+        loader.cancel()
+        if !nebula.isPasteMode { nebula.cancelHold() }
+    }
+
+    /// Paste nebula: it lives while ⌥ and ⌘ are both held.
+    private func flagsChanged(_ flags: NSEvent.ModifierFlags) {
+        guard nebula.isPasteMode else { return }
+        if !flags.contains(.option) || !flags.contains(.command) { nebula.release() }
+    }
+
+    private func showPasteNebula() {
+        guard !settings.recording else { return }
+        pendingShow?.cancel()
+        loader.cancel()
+        guard !history.entries.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        nebula.presentPaste(history.entries, at: NSEvent.mouseLocation, holding: true)
     }
 
     // MARK: - Actions
@@ -83,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.prompt = "Converti"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         let center = NSScreen.main.map { NSPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? NSEvent.mouseLocation
-        nebula.present(urls: panel.urls, at: center, holding: false)
+        nebula.present(files: panel.urls, fromClipboard: false, at: center, holding: false)
     }
 
     @objc func openSettings() {
@@ -106,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let urls = (pboard.readObjects(forClasses: [NSURL.self],
                                        options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         guard !urls.isEmpty else { return }
-        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: false)
+        nebula.present(files: urls, fromClipboard: false, at: NSEvent.mouseLocation, holding: false)
     }
 
     // MARK: - Menu bar

@@ -28,6 +28,14 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Nebula"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 
+# Optional: standalone MarkItDown produced by CI (see .github/workflows/build.yml)
+if [ -x Resources/markitdown/markitdown ]; then
+    echo "→ Includo MarkItDown…"
+    cp -R Resources/markitdown "$APP/Contents/Resources/markitdown"
+    find "$APP/Contents/Resources/markitdown" -type f \( -name "*.so" -o -name "*.dylib" -o -perm -u+x \) \
+        -exec codesign --force --sign - {} \; 2>/dev/null || true
+fi
+
 if [ -f Resources/AppIcon.png ]; then
     ICONSET="build/AppIcon.iconset"
     rm -rf "$ICONSET" && mkdir -p "$ICONSET"

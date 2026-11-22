@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 // MARK: - File kinds
 
 enum FileKind: Sendable {
-    case image, video, audio, pdf, richDocument, markdown, plainText, json, plist, csv, archive, folder, other
+    case image, video, audio, pdf, richDocument, office, markdown, plainText, json, plist, csv, archive, folder, other
 
     var label: String {
         switch self {
@@ -14,6 +14,7 @@ enum FileKind: Sendable {
         case .audio: "Audio"
         case .pdf: "PDF"
         case .richDocument: "Documento"
+        case .office: "Office"
         case .markdown: "Markdown"
         case .plainText: "Testo"
         case .json: "JSON"
@@ -32,6 +33,7 @@ enum FileInspector {
     private static let videoExtensions: Set<String> = ["mkv", "webm", "avi", "flv", "wmv", "mpg", "mpeg", "ts", "3gp", "ogv", "vob"]
     private static let audioExtensions: Set<String> = ["flac", "ogg", "opus", "wma", "ape", "mka"]
     private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
+    private static let officeExtensions: Set<String> = ["pptx", "ppt", "xlsx", "xls", "epub", "msg"]
 
     private static let richTypes: [UTType] = [
         .rtf, .rtfd, .html, .webArchive,
@@ -61,6 +63,7 @@ enum FileInspector {
         if videoExtensions.contains(ext) { return .video }
         if audioExtensions.contains(ext) { return .audio }
         if markdownExtensions.contains(ext) { return .markdown }
+        if officeExtensions.contains(ext) { return .office }
         if ext == "csv" { return .csv }
 
         guard let type = contentType(url) else { return .other }
@@ -93,6 +96,7 @@ struct ConversionTarget: Identifiable, Hashable, Sendable {
     var suffix: String = "" // Appended to the output name, e.g. " HEVC"
     var combines = false    // One output for the whole selection (ZIP)
     var needsFFmpeg = false
+    var needsMarkItDown = false
     var hue: Double = 0.7
 
     var tag: String { String(id.split(separator: ".").last ?? "") }
@@ -112,6 +116,11 @@ enum ConversionCatalog {
     }
 
     static let zip = ConversionTarget(id: "any.zip", label: "ZIP", ext: "zip", symbol: "doc.zipper", combines: true)
+
+    /// Center of the nebula: make the file smaller, keeping its format when possible.
+    static let mini = ConversionTarget(id: "any.mini", label: "Mini", ext: "", symbol: "arrow.down.right.and.arrow.up.left", suffix: " (mini)")
+
+    private static let ai = ConversionTarget(id: "doc.ai", label: "AI.md", ext: "md", symbol: "sparkles", suffix: " (AI)")
 
     private static func options(for kind: FileKind) -> [ConversionTarget] {
         switch kind {
@@ -150,6 +159,7 @@ enum ConversionCatalog {
             ]
         case .pdf:
             return [
+                ai,
                 t("pdf.png", "PNG", "png", "photo"),
                 t("pdf.jpg", "JPEG", "jpg", "photo.fill"),
                 t("pdf.txt", "TXT", "txt", "text.alignleft"),
@@ -159,6 +169,7 @@ enum ConversionCatalog {
             ]
         case .richDocument:
             return [
+                ai,
                 t("doc.pdf", "PDF", "pdf", "doc.richtext"),
                 t("doc.docx", "DOCX", "docx", "doc.text.fill"),
                 t("doc.rtf", "RTF", "rtf", "doc.text"),
@@ -167,6 +178,10 @@ enum ConversionCatalog {
                 t("doc.doc", "DOC", "doc", "doc"),
                 t("doc.txt", "TXT", "txt", "text.alignleft")
             ]
+        case .office:
+            var office = ai
+            office.needsMarkItDown = true
+            return [office]
         case .markdown:
             return [
                 t("md.html", "HTML", "html", "chevron.left.forwardslash.chevron.right"),
@@ -230,7 +245,7 @@ enum ConversionCatalog {
             let ids = Set(targets(for: url).map(\.id))
             common = common.filter { ids.contains($0.id) }
         }
-        common = common.filter { !$0.needsFFmpeg || FFmpeg.path != nil }
+        common = common.filter { (!$0.needsFFmpeg || FFmpeg.path != nil) && (!$0.needsMarkItDown || MarkItDown.isAvailable) }
         var result = Array(common.prefix(9)) + [zip]
         let n = Double(max(result.count - 1, 1))
         for i in result.indices {

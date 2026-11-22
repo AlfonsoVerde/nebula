@@ -7,9 +7,6 @@ struct Shortcut: Codable, Equatable {
     var modifiers: UInt32
     var key: String
 
-    /// ⌥ Space: free by default on macOS, unused in Finder, easy to hold with one hand.
-    static let `default` = Shortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), key: "Spazio")
-
     var display: String {
         var s = ""
         if modifiers & UInt32(controlKey) != 0 { s += "⌃" }

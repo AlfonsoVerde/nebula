@@ -17,6 +17,15 @@ typealias ProgressHandler = @Sendable (Double) -> Void
 /// Dispatches a conversion to the right converter and reports overall progress.
 enum ConversionEngine {
     static func run(_ target: ConversionTarget, on files: [URL], progress: @escaping ProgressHandler) async throws -> [URL] {
+        if target.id == ConversionCatalog.mini.id {
+            var outputs: [URL] = []
+            let n = Double(files.count)
+            for (i, file) in files.enumerated() {
+                let base = Double(i)
+                outputs.append(try await Miniaturizer.run(file) { p in progress((base + p) / n) })
+            }
+            return outputs
+        }
         if target.combines {
             progress(0.35)
             let out = try await Archiver.zip(files)
@@ -38,6 +47,9 @@ enum ConversionEngine {
 
     static func convert(_ src: URL, to t: ConversionTarget, progress: @escaping ProgressHandler) async throws -> URL {
         let kind = FileInspector.kind(of: src)
+        if t.tag == "ai" {
+            return try await MarkItDown.convert(src, progress: progress)
+        }
         if t.needsFFmpeg || (kind.isMedia && !FileInspector.isNativeMedia(src)) {
             return try await FFmpeg.convert(src, to: t, progress: progress)
         }
@@ -59,7 +71,7 @@ enum ConversionEngine {
             return try DataConverter.convert(src, kind: kind, to: t)
         case .archive:
             return try await Archiver.extract(src)
-        case .folder, .other:
+        case .office, .folder, .other:
             throw ConversionError.unsupported
         }
     }
@@ -70,6 +82,9 @@ enum ConversionEngine {
 enum OutputPath {
     /// Next to the original if writable, otherwise ~/Downloads.
     static func directory(for src: URL) -> URL {
+        if ClipboardSource.isTemporary(src) {
+            return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        }
         let dir = src.deletingLastPathComponent()
         if FileManager.default.isWritableFile(atPath: dir.path) { return dir }
         return FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
