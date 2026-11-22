@@ -1,35 +1,24 @@
 # Nebula ✦ convertitore di file per macOS
 
-App nativa per la barra dei menu (Swift, AppKit + SwiftUI, macOS 14+). Selezioni un file e attorno al puntatore si apre una **ghiera a tema galassia**: un buco nero al centro con l'icona del file, una galassia a spirale che ruota, una nebulosa che respira e dei pianeti in orbita, uno per ogni formato di destinazione. Passi sopra un pianeta e si gonfia come una gelatina, gli clicchi sopra e si schiaccia. A quel punto tutti i pianeti vengono risucchiati nel nucleo, la galassia accelera mentre la conversione procede e alla fine c'è un'esplosione di supernova.
+App nativa per la barra dei menu (Swift, AppKit + SwiftUI, macOS 14+). Selezioni uno o più file nel Finder e **tieni premuto ⌥ Spazio**: sotto il puntatore compare la **nebula**, un piccolo blob di vetro scuro con dentro una galassia. Intorno al centro ci sono i formati disponibili. Muovi il puntatore verso un formato e il blob si deforma, molle, in quella direzione. Rilasci la scorciatoia e il file viene convertito.
 
 ## Installazione
 
-Serve Xcode oppure i Command Line Tools (`xcode-select --install`).
+Scarica `Nebula.dmg` dalla pagina Releases del repository, aprilo e trascina Nebula in Applicazioni. Al primo avvio macOS la blocca, perché non è firmata con un account sviluppatore Apple: vai in Impostazioni di Sistema → Privacy e sicurezza → **Apri comunque**. Alla prima scorciatoia concedi anche il permesso di controllare il Finder.
 
-```bash
-cd Nebula
-chmod +x build.sh
-./build.sh --install     # compila, copia in /Applicazioni e avvia
-```
+Facoltativo: `brew install ffmpeg` sblocca WebM, MKV, MP3, FLAC, OGG e WebP.
 
-Al primo uso macOS ti chiede il permesso di **controllare il Finder**: serve a leggere la selezione. Se lo neghi per errore, lo trovi in Impostazioni di Sistema → Privacy e sicurezza → Automazione.
+## Uso
 
-Facoltativo: `brew install ffmpeg` sblocca WebM, MKV, MP3, FLAC, OGG e WebP, e permette di leggere formati che macOS da solo non apre (mkv, webm, avi, ogg…).
-
-## Come si apre la ghiera
-
-| Modo | Cosa fai |
-|---|---|
-| **Automatico** | Nel menu ✦ attiva "Mostra la ghiera quando selezioni un file": la ghiera compare appena selezioni qualcosa nel Finder |
-| **Scorciatoia** | Selezioni il file nel Finder e premi **⌥ Spazio** |
-| **Tasto destro** | Nel Finder: Servizi / Azioni rapide → **Converti con Nebula** |
-| **Trascina** | Trascini i file sull'icona dell'app |
-
-Dentro la ghiera: **1–9** scelgono il pianeta, **Invio** conferma, **Esc** chiude, e un clic sul nucleo a fine conversione mostra il file nel Finder.
+- **Tieni premuto ⌥ Spazio**, punta un formato, **rilascia** → conversione.
+- Se rilasci senza muoverti, la nebula **resta aperta**: punta e clicca. **1–9** scelgono un formato, **Esc** chiude.
+- A conversione finita, un clic sul centro mostra il file nel Finder.
+- La scorciatoia si cambia in **✦ → Impostazioni…**. Di base è attiva solo quando il Finder è in primo piano, così ⌥ Spazio continua a funzionare normalmente nelle altre app.
+- In alternativa: tasto destro nel Finder → **Converti con Nebula**, oppure trascini i file sull'icona dell'app.
 
 ## Formati
 
-Il formato di partenza viene riconosciuto in automatico (UTType + estensione) e la ghiera propone solo le conversioni che hanno senso. Con più file selezionati compaiono solo i formati comuni a tutti. **ZIP** c'è sempre.
+Il formato di partenza viene riconosciuto in automatico (UTType + estensione) e la nebula propone solo le conversioni che hanno senso. Con più file selezionati compaiono solo i formati comuni a tutti. **ZIP** c'è sempre.
 
 | Origine | Destinazioni |
 |---|---|
@@ -51,16 +40,17 @@ Il formato di partenza viene riconosciuto in automatico (UTType + estensione) e 
 Sources/Nebula/
   NebulaApp.swift        avvio come app della barra dei menu
   AppDelegate.swift      menu ✦, scorciatoia, Servizi, avvio al login
-  HotKey.swift           scorciatoia globale ⌥Spazio (Carbon)
-  FinderBridge.swift     selezione del Finder + modalità automatica
+  HotKey.swift           scorciatoia globale con pressione/rilascio
+  Settings.swift         impostazioni e registrazione della scorciatoia
+  FinderBridge.swift     selezione del Finder
   Catalog.swift          riconoscimento dei file e conversioni proposte
   Engine.swift           smistamento, percorsi di uscita, zip/estrazione
   ImageConverter.swift   ImageIO + PDFKit
   MediaConverter.swift   AVFoundation + FFmpeg facoltativo
   DocumentConverter.swift NSAttributedString, PDF impaginato A4, Markdown
   DataConverter.swift    JSON / PLIST / CSV
-  RingController.swift   finestra trasparente e stato della ghiera
-  GalaxyRingView.swift   la ghiera: galassia, nebulosa, pianeti, buco nero, supernova
+  NebulaController.swift stato, fisica a molla e finestra della nebula
+  NebulaView.swift       il blob, la galassia interna, le opzioni
 ```
 
-Per aggiungere un formato: aggiungi una voce in `ConversionCatalog.options(for:)` e gestisci il suo `tag` nel convertitore giusto. Per cambiare la scorciatoia: modifica `kVK_Space` / `optionKey` in `AppDelegate`.
+Per aggiungere un formato: aggiungi una voce in `ConversionCatalog.options(for:)` e gestisci il suo `tag` nel convertitore giusto. La scorciatoia di default è in `Shortcut.default` (`HotKey.swift`).
