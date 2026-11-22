@@ -1,20 +1,15 @@
 import AppKit
-import Carbon.HIToolbox
-import ServiceManagement
+import Combine
+import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
-    private var hotKey: HotKey?
-    private let ring = RingController()
-    private let watcher = SelectionWatcher()
-    private var autoItem: NSMenuItem!
-    private var loginItem: NSMenuItem!
-
-    private var autoShow: Bool {
-        get { UserDefaults.standard.bool(forKey: "autoShow") }
-        set { UserDefaults.standard.set(newValue, forKey: "autoShow") }
-    }
+    private let hotKey = HotKey()
+    private let nebula = NebulaController()
+    private let settings = AppSettings.shared
+    private var settingsWindow: NSWindow?
+    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Lifecycle
 
@@ -25,35 +20,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
 
-        // Global shortcut: ⌥Space summons the ring for the current Finder selection.
-        hotKey = HotKey(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey)) { [weak self] in
-            self?.summonFromFinder()
+        // Hold the shortcut → nebula appears; release → convert to the pointed format.
+        hotKey.onPress = { [weak self] in self?.shortcutPressed() }
+        hotKey.onRelease = { [weak self] in self?.nebula.release() }
+
+        Publishers.CombineLatest3(settings.$shortcut, settings.$finderOnly, settings.$recording)
+            .sink { [weak self] shortcut, finderOnly, recording in
+                self?.updateHotKey(shortcut: shortcut, finderOnly: finderOnly, recording: recording)
+            }
+            .store(in: &cancellables)
+
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshHotKey() }
         }
 
-        // Optional "automatic" mode: the ring appears as soon as you select a file.
-        watcher.onSelection = { [weak self] urls in
-            self?.ring.present(urls: urls, at: NSEvent.mouseLocation)
+        if !UserDefaults.standard.bool(forKey: "launchedBefore") {
+            UserDefaults.standard.set(true, forKey: "launchedBefore")
+            openSettings()
         }
-        watcher.isPaused = { [weak self] in self?.ring.isVisible ?? false }
-        ring.onReveal = { [weak self] urls in self?.watcher.adopt(urls) }
-        if autoShow { watcher.start() }
     }
 
-    /// Files dropped on the app icon or opened with "Open With".
+    /// Files dropped on the app icon or opened with "Apri con".
     func application(_ application: NSApplication, open urls: [URL]) {
-        ring.present(urls: urls, at: NSEvent.mouseLocation)
+        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: false)
+    }
+
+    // MARK: - Hotkey
+
+    private func refreshHotKey() {
+        updateHotKey(shortcut: settings.shortcut, finderOnly: settings.finderOnly, recording: settings.recording)
+    }
+
+    /// With "solo nel Finder" the shortcut is registered only while Finder is in front,
+    /// so ⌥Space keeps working normally in every other app.
+    private func updateHotKey(shortcut: Shortcut, finderOnly: Bool, recording: Bool) {
+        let active = !recording && (!finderOnly || FinderBridge.finderIsFrontmost)
+        if active { hotKey.register(shortcut) } else { hotKey.unregister() }
+    }
+
+    private func shortcutPressed() {
+        if nebula.isVisible {
+            nebula.dismiss()
+            return
+        }
+        let urls = FinderBridge.selection()
+        guard !urls.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: true)
     }
 
     // MARK: - Actions
-
-    @objc func summonFromFinder() {
-        let urls = FinderBridge.selection()
-        guard !urls.isEmpty else {
-            openPanel()
-            return
-        }
-        ring.present(urls: urls, at: NSEvent.mouseLocation)
-    }
 
     @objc func openPanel() {
         NSApp.activate()
@@ -64,31 +83,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.prompt = "Converti"
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         let center = NSScreen.main.map { NSPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? NSEvent.mouseLocation
-        ring.present(urls: panel.urls, at: center)
+        nebula.present(urls: panel.urls, at: center, holding: false)
     }
 
-    @objc private func toggleAuto() {
-        autoShow.toggle()
-        autoItem.state = autoShow ? .on : .off
-        if autoShow {
-            _ = FinderBridge.selection() // triggers the Automation permission prompt once
-            watcher.start()
-        } else {
-            watcher.stop()
+    @objc func openSettings() {
+        if settingsWindow == nil {
+            let host = NSHostingView(rootView: SettingsView())
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Impostazioni di Nebula"
+            window.contentView = host
+            window.isReleasedWhenClosed = false
+            window.center()
+            settingsWindow = window
         }
-    }
-
-    @objc private func toggleLogin() {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled { try service.unregister() } else { try service.register() }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Impossibile modificare l'avvio automatico"
-            alert.informativeText = "Sposta Nebula nella cartella Applicazioni e riprova.\n\n\(error.localizedDescription)"
-            alert.runModal()
-        }
-        loginItem.state = service.status == .enabled ? .on : .off
+        NSApp.activate()
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     /// Services entry point (NSMessage = convertFiles in Info.plist).
@@ -96,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let urls = (pboard.readObjects(forClasses: [NSURL.self],
                                        options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         guard !urls.isEmpty else { return }
-        ring.present(urls: urls, at: NSEvent.mouseLocation)
+        nebula.present(urls: urls, at: NSEvent.mouseLocation, holding: false)
     }
 
     // MARK: - Menu bar
@@ -106,31 +116,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Nebula")
 
         let menu = NSMenu()
-        menu.addItem(item("Converti selezione del Finder", #selector(summonFromFinder), key: " ", mods: [.option]))
         menu.addItem(item("Apri file…", #selector(openPanel), key: "o"))
-        menu.addItem(.separator())
-
-        autoItem = item("Mostra la ghiera quando selezioni un file", #selector(toggleAuto))
-        autoItem.state = autoShow ? .on : .off
-        menu.addItem(autoItem)
-
-        loginItem = item("Apri al login", #selector(toggleLogin))
-        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(loginItem)
-
-        menu.addItem(.separator())
-        let ff = NSMenuItem(title: FFmpeg.path != nil ? "FFmpeg trovato: formati extra attivi" : "FFmpeg non installato (formati base)",
-                            action: nil, keyEquivalent: "")
-        menu.addItem(ff)
+        menu.addItem(item("Impostazioni…", #selector(openSettings), key: ","))
         menu.addItem(.separator())
         menu.addItem(item("Esci da Nebula", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         statusItem.menu = menu
     }
 
-    private func item(_ title: String, _ action: Selector, key: String = "",
-                      mods: NSEvent.ModifierFlags = [.command], target: AnyObject? = nil) -> NSMenuItem {
+    private func item(_ title: String, _ action: Selector, key: String = "", target: AnyObject? = nil) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.keyEquivalentModifierMask = mods
         item.target = target ?? self
         return item
     }
