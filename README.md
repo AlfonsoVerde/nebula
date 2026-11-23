@@ -13,16 +13,18 @@ Scarica `Nebula.dmg` dalla pagina Releases, aprilo e trascina Nebula in Applicaz
 
 - **Nel Finder con file selezionati:** tieni premuto ⌥ e la nebula compare subito.
 - **Altrove, o nel Finder senza selezione:** intorno al puntatore parte un caricatore di 1,5 s, poi la nebula lavora su ciò che hai **copiato** (immagini, testo, file). Il risultato va in Download e torna negli appunti.
-- **Scegliere:** punta un formato e **rilascia ⌥**. Se rilasci al centro, la nebula sparisce e non succede niente.
-- **Strattone:** un movimento veloce verso un formato vale come "voglio questo". La nebula scatta in quella direzione e si dissolve sull'opzione, che parte senza aspettare il rilascio.
-- **Clic al centro = Mini:** riduce i file (immagini ridimensionate e ricompresse, video in HEVC 1080p, audio in AAC, PDF con immagini ottimizzate, il resto in ZIP).
+- **Scegliere:** punta un formato e **rilascia ⌥**. Se rilasci al centro, la nebula sparisce senza fare nulla.
+- **Strattone:** parti fermo dal centro e scatta in linea retta, veloce, oltre il bordo del blob verso un formato: la nebula si allunga e si dissolve sull'opzione. I movimenti nervosi o che non partono dal centro non contano, e la soglia di velocità si adatta a come muovi il mouse di solito.
+- **Centro = Copia:** un clic sul pulsante al centro copia il file negli appunti, come ⌘C nel Finder.
+- **Interruttore Mini** (sotto la nebula): con Mini attivo, ogni file creato viene anche ridotto di dimensioni. In basso compare in più l'opzione "stesso formato, più piccolo".
+- **⌘Z** subito dopo un'azione la annulla: i file creati finiscono nel Cestino e gli appunti tornano com'erano. Nei 10 secondi successivi all'azione ⌘Z è riservato a Nebula; dopo puoi sempre usare ✦ → Annulla ultima azione.
 - **⌥⌘V tenuto premuto:** compaiono le ultime 3 cose copiate. Punta e rilascia per incollarla.
+- **Abitudini:** per ogni tipo di file, i formati che usi di più salgono piano piano verso le prime posizioni (partendo dall'alto, in senso orario). Il preferito ha un pallino e l'interruttore Mini viene ricordato. Si disattiva o si azzera dalle Impostazioni.
 - Se usi ⌥ insieme ad altri tasti o al mouse, funziona come ⌥ normale.
-- Tasto, scorciatoie e comportamento si cambiano in **✦ → Impostazioni…**.
 
 ## AI.md
 
-Per PDF, Word, PowerPoint, Excel ed EPUB c'è l'opzione **AI.md**: trasforma il documento in Markdown pulito, pronto da dare a qualsiasi modello AI. Usa [MarkItDown](https://github.com/microsoft/markitdown) di Microsoft, già incluso nell'app sui Mac Apple Silicon. Altrove usa un convertitore nativo di riserva per PDF e documenti di testo.
+Per tutti i documenti testuali (PDF, Word, RTF, HTML, testo, codice, Markdown, CSV, JSON, PowerPoint, Excel, EPUB) c'è l'opzione **AI.md**: trasforma il documento in Markdown pulito, pronto da dare a qualsiasi modello AI. Usa [MarkItDown](https://github.com/microsoft/markitdown) di Microsoft, già incluso nell'app sui Mac Apple Silicon. Altrove usa un convertitore nativo di riserva per PDF e documenti di testo.
 
 ## Formati
 
@@ -54,6 +56,8 @@ Sources/Nebula/
   Clipboard.swift        appunti come sorgente, risultati negli appunti, ultimi 3 copiati
   Loader.swift           caricatore circolare attorno al puntatore
   Miniaturizer.swift     Mini: file più piccoli
+  Habits.swift           adattamento alle abitudini
+  Undo.swift             ⌘Z, appunti ripristinabili, avvisi
   MarkItDown.swift       AI.md con MarkItDown + convertitore nativo
   Settings.swift         impostazioni e registrazione della scorciatoia
   FinderBridge.swift     selezione del Finder
