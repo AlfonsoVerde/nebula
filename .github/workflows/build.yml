@@ -28,6 +28,8 @@ jobs:
           du -sh Resources/markitdown
       - name: Build app (universal)
         run: UNIVERSAL=1 ./build.sh
+      - name: Check translations
+        run: plutil -lint build/Nebula.app/Contents/Resources/*.lproj/*.strings
       - name: Make DMG
         run: |
           mkdir -p dmg

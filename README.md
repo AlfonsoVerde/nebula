@@ -14,7 +14,7 @@ Scarica `Nebula.dmg` dalla pagina Releases, aprilo e trascina Nebula in Applicaz
 Nebula ha quattro modalità, ognuna con un gesto suo e un cielo suo.
 
 **Nebula · converte (tieni premuto ⌥)**
-- Nel Finder con file selezionati compare subito. Altrove, o senza selezione, parte un caricatore di 1,5 s intorno al puntatore (premi ⌥ due volte di fila per dimezzarlo), poi la Nebula lavora su ciò che hai copiato. Il risultato va in Download e si aggiunge a Eco, senza toccare gli appunti.
+- Nel Finder con file selezionati compare subito. Altrove, o senza selezione, parte un caricatore di 1,5 s intorno al puntatore (premi ⌥ due volte di fila per dimezzarlo), poi la Nebula lavora su ciò che hai copiato. Il risultato va negli appunti, pronto da incollare.
 - Punta un formato e rilascia ⌥. Se rilasci al centro, sparisce senza fare nulla.
 - Strattone: parti fermo dal centro e scatta in linea retta, veloce, oltre il bordo verso un formato.
 - Clic sul pulsante al centro: copia il file come ⌘C.
@@ -31,11 +31,14 @@ Nebula ha quattro modalità, ognuna con un gesto suo e un cielo suo.
 - Pulisci: toglie GPS, dati della fotocamera, autore e proprietà dei documenti (anche Word, Excel e PowerPoint) e la traccia di dove è stato scaricato.
 
 **Eco · incolla (tieni premuto ⌥⌘V)**
-- Le ultime 3 cose copiate e i file convertiti dagli appunti. Punta e rilascia per incollare.
+- Le ultime 3 cose copiate, la più recente più grande. Punta e rilascia per incollare.
+- Se converti qualcosa che hai copiato (per esempio un PDF in TXT), il risultato va in prima posizione e si incolla subito; l'originale scende in seconda, ciò che avevi copiato prima in terza.
 
 **Sempre**
 - ⌘Z subito dopo un'azione la annulla. Nei 10 secondi successivi ⌘Z è riservato a Nebula; poi resta disponibile da ✦ → Annulla ultima azione.
-- Abitudini: per ogni tipo di file e modalità, le opzioni che usi di più salgono piano piano verso l'alto e la preferita ha un pallino.
+- Abitudini: per ogni tipo di file e modalità, le opzioni che usi di più diventano più grandi e salgono piano piano verso l'alto; la preferita ha un pallino.
+- Ogni funzione (Nebula, Pulsar, Buco nero, Eco) si può spegnere nelle Impostazioni, dove una piccola animazione mostra come funziona.
+- Lingue: italiano, inglese, spagnolo, francese, tedesco, portoghese, russo, cinese, giapponese, coreano; si adatta da sola alla lingua del Mac.
 - Pulsar e Buco nero funzionano solo nel Finder con file selezionati e non intercettano mai i tasti mentre rinomini un file.
 - Se usi ⌥ insieme ad altri tasti o al mouse, funziona come ⌥ normale.
 
@@ -74,6 +77,7 @@ Sources/Nebula/
   Loader.swift           caricatore circolare attorno al puntatore
   Miniaturizer.swift     Mini (in Pulsar): file più piccoli
   Habits.swift           adattamento alle abitudini
+  Localization.swift     traduzioni (Resources/Localization/*.lproj)
   Undo.swift             ⌘Z, appunti ripristinabili, avvisi
   Tools.swift            Pulsar: PDF, cartelle, video, immagini (Vision)
   ToolPanels.swift       pannelli password, rinomina, taglio
