@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem!
     private let trigger = TriggerMonitor()
     private let pasteKey = HotKey()
@@ -47,8 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         if !Accessibility.isTrusted { Accessibility.prompt() }
-        if !UserDefaults.standard.bool(forKey: "launchedV3") {
-            UserDefaults.standard.set(true, forKey: "launchedV3")
+        _ = UndoCenter.shared
+        if !UserDefaults.standard.bool(forKey: "launchedV4") {
+            UserDefaults.standard.set(true, forKey: "launchedV4")
             openSettings()
         }
     }
@@ -61,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Trigger key
 
     private func triggerDown() {
-        guard !settings.recording, !nebula.isVisible, NSEvent.pressedMouseButtons == 0 else { return }
+        guard !settings.recording, !nebula.isVisible, !loader.isActive, NSEvent.pressedMouseButtons == 0 else { return }
 
         // Finder with a selection → nebula right away.
         if FinderBridge.finderIsFrontmost {
@@ -134,6 +135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         nebula.present(files: panel.urls, fromClipboard: false, at: center, holding: false)
     }
 
+    @objc func undoLast() {
+        UndoCenter.shared.undo()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        menuItem.action == #selector(undoLast) ? UndoCenter.shared.canUndo : true
+    }
+
     @objc func openSettings() {
         if settingsWindow == nil {
             let host = NSHostingView(rootView: SettingsView())
@@ -165,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(item("Apri file…", #selector(openPanel), key: "o"))
+        menu.addItem(item("Annulla ultima azione di Nebula", #selector(undoLast), key: "z"))
         menu.addItem(item("Impostazioni…", #selector(openSettings), key: ","))
         menu.addItem(.separator())
         menu.addItem(item("Esci da Nebula", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))

@@ -56,10 +56,28 @@ enum NativeMarkdown {
                 if let text = doc.page(at: i)?.attributedString { pages.append(markdown(from: text)) }
             }
             return pages.joined(separator: "\n\n")
-        case .richDocument, .plainText:
+        case .richDocument:
             return markdown(from: try DocumentConverter.load(src, kind: kind))
         case .markdown:
             return try DocumentConverter.readText(src)
+        case .plainText:
+            let text = try DocumentConverter.readText(src)
+            let ext = src.pathExtension.lowercased()
+            // Source code / config → fenced block so models keep the formatting.
+            return ext == "txt" || ext.isEmpty ? text : "```\(ext)\n\(text)\n```\n"
+        case .json:
+            return "```json\n\(try DocumentConverter.readText(src))\n```\n"
+        case .plist:
+            return "```xml\n\(try DocumentConverter.readText(src))\n```\n"
+        case .csv:
+            let rows = DataConverter.parseCSV(try DocumentConverter.readText(src))
+            guard let header = rows.first else { return "" }
+            func row(_ cells: [String]) -> String {
+                "| " + header.indices.map { $0 < cells.count ? cells[$0].replacingOccurrences(of: "|", with: "\\|") : "" }
+                    .joined(separator: " | ") + " |"
+            }
+            let lines = [row(header), "| " + header.map { _ in "---" }.joined(separator: " | ") + " |"] + rows.dropFirst().map(row)
+            return lines.joined(separator: "\n") + "\n"
         default:
             throw ConversionError.failed("Per questo formato serve MarkItDown")
         }

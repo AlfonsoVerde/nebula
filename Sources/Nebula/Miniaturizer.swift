@@ -37,6 +37,17 @@ enum Miniaturizer {
         return out
     }
 
+    /// Mini toggle on: shrink a freshly converted file, keeping the smaller one.
+    static func shrink(_ url: URL) async -> URL {
+        do {
+            let mini = try await run(url) { _ in }
+            try? FileManager.default.removeItem(at: url)
+            return mini
+        } catch {
+            return url
+        }
+    }
+
     private static let miniVideo = ConversionTarget(id: "video.mp4", label: "Mini", ext: "mp4", symbol: "film", suffix: " (mini)")
     private static let miniAudio = ConversionTarget(id: "audio.m4a", label: "Mini", ext: "m4a", symbol: "waveform", suffix: " (mini)")
 

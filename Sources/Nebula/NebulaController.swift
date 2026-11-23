@@ -15,6 +15,8 @@ struct NebulaItem: Identifiable, Equatable {
     let symbol: String
     let thumbnail: NSImage?
     let action: Action
+    /// "Same format, smaller": lives in the bottom slot, shown only with Mini on.
+    var isSameFormat = false
 
     static func == (a: NebulaItem, b: NebulaItem) -> Bool { a.id == b.id }
 }
@@ -35,12 +37,24 @@ final class NebulaModel: ObservableObject {
         var size: CGFloat = 1         // 1 = full nebula, 0.5 = compact progress pill
     }
 
+    /// A pointer move that started at rest in the center (candidate flick).
+    private struct Gesture {
+        var start: CGPoint
+        var last: CGPoint
+        var time: Double
+        var path: CGFloat
+    }
+
     @Published private(set) var phase: Phase = .idle
     @Published private(set) var selected: Int?
     @Published private(set) var launchedIndex: Int?
     @Published private(set) var progress: Double = 0
     @Published private(set) var message = ""
     @Published private(set) var holding: Bool
+    @Published private(set) var centerHover = false
+    @Published private(set) var toggleHover = false
+    @Published private(set) var miniOn: Bool
+    @Published private(set) var canUndo = false
     @Published private(set) var frame = Frame()
 
     let kind: Kind
@@ -50,6 +64,10 @@ final class NebulaModel: ObservableObject {
     let icon: NSImage?
     let badge: String
     let canMiniaturize: Bool
+    let canCopy: Bool
+    let favoriteID: String?
+    let habitKey: String
+    private let hasSameSlot: Bool
 
     /// Nebula center in screen coordinates.
     var center: NSPoint = .zero
@@ -60,35 +78,56 @@ final class NebulaModel: ObservableObject {
     private var velocity = CGVector.zero
     private var scaleVelocity: CGFloat = 0
     private var sizeVelocity: CGFloat = 0
-    private var pointerVelocity = CGVector.zero
-    private var lastMouse: NSPoint?
+    private var gesture: Gesture?
     private var launchTime: Double = 0
     private var closing = false
     private var timer: Timer?
     private var lastTick = CACurrentMediaTime()
 
-    static let deadzone: CGFloat = 16
-    /// A flick: fast (pt/s) and mostly outward from the center.
-    static let flickSpeed: CGFloat = 1400
+    static let radius: CGFloat = 88
+    /// Rest area in the center (= the Copy button).
+    static let deadzone: CGFloat = 26
+    /// A flick must reach beyond the edge of the blob…
+    static let flickReach: CGFloat = radius + 14
+    /// Where the Mini toggle sits, below the blob (SwiftUI coordinates, from the center).
+    static let toggleOffset: CGFloat = radius + 26
 
     init(files: [URL], fromClipboard: Bool, holding: Bool) {
         kind = .files
         self.files = files
         self.fromClipboard = fromClipboard
         self.holding = holding
-        items = ConversionCatalog.targets(for: files).map {
+
+        let key = Habits.key(for: files)
+        habitKey = key
+        var targets = ConversionCatalog.targets(for: files)
+        let order = Habits.shared.arrange(targets.map(\.id), key: key)
+        targets.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
+        var list = targets.prefix(10).map {
             NebulaItem(id: $0.id, label: $0.label, symbol: $0.symbol, thumbnail: nil, action: .convert($0))
         }
-        icon = NSWorkspace.shared.icon(forFile: files[0].path)
+
         let firstKind = FileInspector.kind(of: files[0])
+        canMiniaturize = !(fromClipboard && [FileKind.plainText, .markdown, .richDocument].contains(firstKind))
+        canCopy = !fromClipboard
+        if canMiniaturize {
+            let exts = Set(files.map { $0.pathExtension.uppercased() })
+            let label = exts.count == 1 && !(exts.first ?? "").isEmpty ? exts.first! : "Riduci"
+            list.append(NebulaItem(id: "any.same", label: label, symbol: "arrow.down.right.and.arrow.up.left",
+                                   thumbnail: nil, action: .convert(ConversionCatalog.mini), isSameFormat: true))
+        }
+        hasSameSlot = canMiniaturize
+        items = list
+
+        icon = NSWorkspace.shared.icon(forFile: files[0].path)
         if files.count == 1 {
             let ext = files[0].pathExtension.uppercased()
-            let name = ext.isEmpty ? firstKind.label.uppercased() : ext
-            badge = fromClipboard ? "APPUNTI · \(name)" : name
+            badge = ext.isEmpty ? firstKind.label.uppercased() : ext
         } else {
             badge = "\(files.count) FILE"
         }
-        canMiniaturize = !(fromClipboard && [FileKind.plainText, .markdown, .richDocument].contains(firstKind))
+        miniOn = canMiniaturize && Habits.shared.mini(for: key)
+        favoriteID = Habits.shared.favorite(key: key)
     }
 
     init(entries: [ClipboardHistory.Entry], holding: Bool) {
@@ -102,10 +141,26 @@ final class NebulaModel: ObservableObject {
         icon = nil
         badge = "INCOLLA"
         canMiniaturize = false
+        canCopy = false
+        hasSameSlot = false
+        miniOn = false
+        favoriteID = nil
+        habitKey = ""
     }
 
+    /// Slot angle. With Mini available the bottom slot is reserved for "same format".
     func angle(_ index: Int) -> CGFloat {
-        -.pi / 2 + CGFloat(index) / CGFloat(max(items.count, 1)) * 2 * .pi
+        let n = max(items.count, 1)
+        var slot = index
+        if hasSameSlot {
+            let bottom = n / 2
+            if index == n - 1 { slot = bottom } else if index >= bottom { slot = index + 1 }
+        }
+        return -.pi / 2 + CGFloat(slot) / CGFloat(n) * 2 * .pi
+    }
+
+    func isAvailable(_ index: Int) -> Bool {
+        index < items.count && (!items[index].isSameFormat || miniOn)
     }
 
     // MARK: Loop
@@ -134,44 +189,35 @@ final class NebulaModel: ObservableObject {
         f.t += Double(dt)
         f.spin += Double(dt) * (phase == .converting ? 1.8 : 0.14)
 
-        // Smoothed pointer velocity (SwiftUI orientation: y down).
         let mouse = NSEvent.mouseLocation
-        if let last = lastMouse {
-            let v = CGVector(dx: (mouse.x - last.x) / dt, dy: (last.y - mouse.y) / dt)
-            pointerVelocity = CGVector(dx: pointerVelocity.dx * 0.5 + v.dx * 0.5,
-                                       dy: pointerVelocity.dy * 0.5 + v.dy * 0.5)
-        }
-        lastMouse = mouse
+        let dx = mouse.x - center.x
+        let dy = center.y - mouse.y // SwiftUI orientation: y down
+        let distance = hypot(dx, dy)
 
         var target = CGVector.zero
         var sizeGoal: CGFloat = 1
 
         switch phase {
         case .idle:
-            if !closing && !items.isEmpty {
-                let dx = mouse.x - center.x
-                let dy = center.y - mouse.y
-                let distance = hypot(dx, dy)
-                if distance > Self.deadzone {
-                    let index = nearestIndex(to: atan2(dy, dx))
-                    if selected != index {
-                        selected = index
-                        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-                    }
-                    let amount = min(1, (distance - Self.deadzone) / 90)
-                    let strength = 0.07 + 0.2 * amount
-                    let a = angle(index)
-                    target = CGVector(dx: cos(a) * strength, dy: sin(a) * strength)
+            guard !closing else { break }
+            let overToggle = canMiniaturize && abs(dx) < 40 && abs(dy - Self.toggleOffset) < 16
+            if toggleHover != overToggle { toggleHover = overToggle }
+            let overCenter = canCopy && distance <= Self.deadzone
+            if centerHover != overCenter { centerHover = overCenter }
 
-                    // Flick: "I WANT THIS".
-                    let speed = hypot(pointerVelocity.dx, pointerVelocity.dy)
-                    let outward = (pointerVelocity.dx * dx + pointerVelocity.dy * dy) / distance
-                    if speed > Self.flickSpeed && outward > 0.75 * speed && distance > 26 {
-                        launch(index)
-                    }
-                } else if selected != nil {
-                    selected = nil
+            if distance <= Self.deadzone || overToggle {
+                if selected != nil { selected = nil }
+                gesture = distance <= Self.deadzone ? Gesture(start: CGPoint(x: dx, y: dy), last: CGPoint(x: dx, y: dy), time: f.t, path: 0) : nil
+            } else if let index = nearestIndex(to: atan2(dy, dx)) {
+                if selected != index {
+                    selected = index
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
                 }
+                let amount = min(1, (distance - Self.deadzone) / 90)
+                let strength = 0.07 + 0.2 * amount
+                let a = angle(index)
+                target = CGVector(dx: cos(a) * strength, dy: sin(a) * strength)
+                if detectFlick(dx: dx, dy: dy, distance: distance, age: f.t) { launch(index) }
             }
         case .launching:
             if let index = launchedIndex {
@@ -210,10 +256,34 @@ final class NebulaModel: ObservableObject {
         }
     }
 
-    private func nearestIndex(to phi: CGFloat) -> Int {
-        var best = 0
+    /// A flick is deliberate: it starts at rest in the center, goes out in an almost
+    /// straight line, crosses the edge of the blob quickly and travels far enough.
+    /// Fidgeting, or fast moves that didn't start from the center, never count.
+    private func detectFlick(dx: CGFloat, dy: CGFloat, distance: CGFloat, age: Double) -> Bool {
+        guard var g = gesture else { return false }
+        let p = CGPoint(x: dx, y: dy)
+        g.path += hypot(p.x - g.last.x, p.y - g.last.y)
+        g.last = p
+        let elapsed = age - g.time
+
+        if distance >= Self.flickReach {
+            gesture = nil
+            let displacement = hypot(p.x - g.start.x, p.y - g.start.y)
+            let speed = displacement / CGFloat(max(elapsed, 0.001))
+            let straightness = displacement / max(g.path, 1)
+            let isFlick = age > 0.25 && elapsed < 0.22 && displacement > 75
+                && straightness > 0.9 && speed > Habits.shared.flickThreshold
+            if !isFlick { Habits.shared.recordSpeed(Double(speed)) }
+            return isFlick
+        }
+        gesture = elapsed > 0.3 ? nil : g
+        return false
+    }
+
+    private func nearestIndex(to phi: CGFloat) -> Int? {
+        var best: Int?
         var bestDelta = CGFloat.greatestFiniteMagnitude
-        for i in items.indices {
+        for i in items.indices where isAvailable(i) {
             let a = angle(i)
             let delta = abs(atan2(sin(phi - a), cos(phi - a)))
             if delta < bestDelta { bestDelta = delta; best = i }
@@ -247,11 +317,31 @@ final class NebulaModel: ObservableObject {
         }
     }
 
-    func miniaturize() {
-        guard phase == .idle, canMiniaturize, !closing else { return }
-        selected = nil
+    /// Center click: copy the file(s), like ⌘C in the Finder.
+    func copyFiles() {
+        guard phase == .idle, canCopy, !closing else { return }
+        let before = PasteboardSnapshot.capture()
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(files as [NSURL])
+        UndoCenter.shared.register(.pasteboard(before))
+        canUndo = true
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-        startConversion(ConversionCatalog.mini)
+        selected = nil
+        message = files.count == 1 ? "Copiato" : "\(files.count) copiati"
+        phase = .done
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            self?.requestClose()
+        }
+    }
+
+    func toggleMini() {
+        guard phase == .idle, canMiniaturize else { return }
+        miniOn.toggle()
+        Habits.shared.setMini(miniOn, key: habitKey)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        if let selected, !isAvailable(selected) { self.selected = nil }
     }
 
     func outsideClick() {
@@ -273,26 +363,30 @@ final class NebulaModel: ObservableObject {
         default:
             guard phase == .idle, let chars = event.charactersIgnoringModifiers, let n = Int(chars) else { return false }
             let index = n == 0 ? 9 : n - 1
-            guard index < items.count else { return false }
+            guard isAvailable(index) else { return false }
             launch(index)
             return true
         }
     }
 
     private func launch(_ index: Int) {
-        guard phase == .idle, !closing, index < items.count else { return }
+        guard phase == .idle, !closing, isAvailable(index) else { return }
         selected = index
         launchedIndex = index
         launchTime = frame.t
         phase = .launching
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+        if kind == .files {
+            let shown = items.filter { !$0.isSameFormat }.map(\.id)
+            Habits.shared.record(items[index].id, key: habitKey, shown: shown)
+        }
     }
 
     private func finishLaunch() {
         guard let index = launchedIndex else { return }
         switch items[index].action {
         case .convert(let target):
-            startConversion(target)
+            startConversion(target, shrink: miniOn && !items[index].isSameFormat)
         case .paste(let entry):
             phase = .done
             onPaste(entry)
@@ -300,7 +394,7 @@ final class NebulaModel: ObservableObject {
         }
     }
 
-    private func startConversion(_ target: ConversionTarget) {
+    private func startConversion(_ target: ConversionTarget, shrink: Bool) {
         progress = 0
         phase = .converting
 
@@ -309,17 +403,28 @@ final class NebulaModel: ObservableObject {
         let box = WeakModel(self)
         Task { [weak self] in
             do {
-                let outs = try await ConversionEngine.run(target, on: files) { p in
-                    Task { @MainActor in box.value?.bump(p) }
+                var outs = try await ConversionEngine.run(target, on: files) { p in
+                    Task { @MainActor in box.value?.bump(shrink ? p * 0.85 : p) }
                 }
-                if fromClipboard { ClipboardWriter.put(outs) }
+                if shrink && !target.combines {
+                    var smaller: [URL] = []
+                    for out in outs { smaller.append(await Miniaturizer.shrink(out)) }
+                    outs = smaller
+                }
+                var before: PasteboardSnapshot?
+                if fromClipboard {
+                    before = PasteboardSnapshot.capture()
+                    ClipboardWriter.put(outs)
+                }
+                UndoCenter.shared.register(.files(outs, restoring: before))
                 guard let self else { return }
                 self.outputs = outs
                 self.progress = 1
+                self.canUndo = true
                 self.message = fromClipboard ? "Copiato" : "Mostra"
                 self.phase = .done
                 NSSound(named: "Glass")?.play()
-                try? await Task.sleep(nanoseconds: 1_800_000_000)
+                try? await Task.sleep(nanoseconds: 2_200_000_000)
                 if self.phase == .done { self.requestClose() }
             } catch {
                 guard let self else { return }
@@ -337,7 +442,7 @@ final class NebulaModel: ObservableObject {
     }
 
     private func reveal() {
-        guard !outputs.isEmpty else { return }
+        guard !outputs.isEmpty else { requestClose(); return }
         NSWorkspace.shared.activateFileViewerSelecting(outputs)
         requestClose()
     }

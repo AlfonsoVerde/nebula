@@ -184,6 +184,7 @@ enum ConversionCatalog {
             return [office]
         case .markdown:
             return [
+                ai,
                 t("md.html", "HTML", "html", "chevron.left.forwardslash.chevron.right"),
                 t("md.pdf", "PDF", "pdf", "doc.richtext"),
                 t("md.docx", "DOCX", "docx", "doc.text.fill"),
@@ -192,6 +193,7 @@ enum ConversionCatalog {
             ]
         case .plainText:
             return [
+                ai,
                 t("text.pdf", "PDF", "pdf", "doc.richtext"),
                 t("text.docx", "DOCX", "docx", "doc.text.fill"),
                 t("text.rtf", "RTF", "rtf", "doc.text"),
@@ -199,13 +201,15 @@ enum ConversionCatalog {
             ]
         case .json:
             return [
+                ai,
                 t("json.plist", "PLIST", "plist", "list.bullet.indent"),
                 t("json.csv", "CSV", "csv", "tablecells")
             ]
         case .plist:
-            return [t("plist.json", "JSON", "json", "curlybraces")]
+            return [ai, t("plist.json", "JSON", "json", "curlybraces")]
         case .csv:
             return [
+                ai,
                 t("csv.json", "JSON", "json", "curlybraces"),
                 t("csv.html", "HTML", "html", "tablecells")
             ]
@@ -246,7 +250,7 @@ enum ConversionCatalog {
             common = common.filter { ids.contains($0.id) }
         }
         common = common.filter { (!$0.needsFFmpeg || FFmpeg.path != nil) && (!$0.needsMarkItDown || MarkItDown.isAvailable) }
-        var result = Array(common.prefix(9)) + [zip]
+        var result = common + [zip]
         let n = Double(max(result.count - 1, 1))
         for i in result.indices {
             result[i].hue = (0.50 + 0.47 * Double(i) / n).truncatingRemainder(dividingBy: 1)

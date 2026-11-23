@@ -45,6 +45,7 @@ struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var trusted = Accessibility.isTrusted
+    @AppStorage("adaptive") private var adaptive = true
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -53,7 +54,7 @@ struct SettingsView: View {
                 Picker("Tasto della nebula", selection: $settings.trigger) {
                     ForEach(TriggerKey.allCases) { Text($0.title).tag($0) }
                 }
-                Text("Tieni premuto il tasto da solo. Con un file selezionato nel Finder la nebula compare subito; altrove parte un caricatore di 1,5 s e la nebula lavora su ciò che hai copiato. Punta un formato e rilascia, oppure dai uno strattone verso il formato. Clic al centro = Mini. Se usi il tasto insieme ad altri, funziona come sempre.")
+                Text("Tieni premuto il tasto da solo. Con un file selezionato nel Finder la nebula compare subito; altrove parte un caricatore di 1,5 s e la nebula lavora su ciò che hai copiato. Punta un formato e rilascia, oppure dai uno strattone deciso dal centro verso il formato. Clic al centro = copia il file; l'interruttore Mini sotto la nebula riduce le dimensioni dei file creati. ⌘Z annulla subito l'ultima azione. Se usi il tasto insieme ad altri, funziona come sempre.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,6 +94,14 @@ struct SettingsView: View {
                             launchAtLogin = SMAppService.mainApp.status == .enabled
                         }
                     }
+            }
+            Section {
+                Toggle("Adatta la nebula alle mie abitudini", isOn: $adaptive)
+                Text("I formati che usi di più per ogni tipo di file salgono piano piano verso l'alto (sempre negli stessi punti, per ritrovarli a memoria), il preferito ha un pallino, l'interruttore Mini viene ricordato e lo strattone si calibra sulla tua velocità.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Azzera le abitudini") { Habits.shared.reset() }
             }
             Section {
                 LabeledContent("MarkItDown (AI.md)") {

@@ -51,6 +51,10 @@ struct Shortcut: Codable, Equatable {
 
 /// Global hotkey with press *and* release callbacks (Carbon RegisterEventHotKey).
 final class HotKey {
+    private static var nextID: UInt32 = 1
+    /// Each instance has its own id: Carbon delivers every hotkey to every handler.
+    let identifier: UInt32
+
     var onPress: () -> Void = {}
     var onRelease: () -> Void = {}
     private(set) var registered: Shortcut?
@@ -59,14 +63,21 @@ final class HotKey {
     private var handlerRef: EventHandlerRef?
 
     init() {
+        identifier = HotKey.nextID
+        HotKey.nextID += 1
         var specs = [
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed)),
             EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
         ]
         let me = Unmanaged.passUnretained(self).toOpaque()
         InstallEventHandler(GetApplicationEventTarget(), { _, event, userData in
-            guard let event, let userData else { return noErr }
+            guard let event, let userData else { return OSStatus(eventNotHandledErr) }
             let hotKey = Unmanaged<HotKey>.fromOpaque(userData).takeUnretainedValue()
+            var hotKeyID = EventHotKeyID()
+            let status = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                           EventParamType(typeEventHotKeyID), nil,
+                                           MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
+            guard status == noErr, hotKeyID.id == hotKey.identifier else { return OSStatus(eventNotHandledErr) }
             switch GetEventKind(event) {
             case UInt32(kEventHotKeyPressed): hotKey.onPress()
             case UInt32(kEventHotKeyReleased): hotKey.onRelease()
@@ -79,7 +90,7 @@ final class HotKey {
     func register(_ shortcut: Shortcut) {
         guard registered != shortcut else { return }
         unregister()
-        let id = EventHotKeyID(signature: OSType(0x4E42_554C), id: 1) // 'NBUL'
+        let id = EventHotKeyID(signature: OSType(0x4E42_554C), id: identifier) // 'NBUL'
         let status = RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id,
                                          GetApplicationEventTarget(), 0, &hotKeyRef)
         if status == noErr { registered = shortcut }
