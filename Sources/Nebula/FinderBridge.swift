@@ -23,6 +23,19 @@ enum FinderBridge {
         NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
     }
 
+    /// True while you're typing in the Finder (renaming a file, search field…).
+    static var isEditingText: Bool {
+        guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier == "com.apple.finder" else { return false }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        var focused: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
+              let focused else { return false }
+        var role: CFTypeRef?
+        AXUIElementCopyAttributeValue(focused as! AXUIElement, kAXRoleAttribute as CFString, &role)
+        let name = role as? String
+        return name == kAXTextFieldRole as String || name == kAXTextAreaRole as String || name == "AXSearchField"
+    }
+
     static func selection() -> [URL] {
         guard let script else { return [] }
         var error: NSDictionary?

@@ -84,8 +84,11 @@ enum ClipboardWriter {
 
 // MARK: - Last copied items (⌥⌘V)
 
+/// "Eco": the last copied items (⌥⌘V), plus whatever Nebula converts from the clipboard.
 @MainActor
 final class ClipboardHistory {
+    static let shared = ClipboardHistory()
+
     struct Entry: Identifiable {
         let id = UUID()
         let items: [[NSPasteboard.PasteboardType: Data]]
@@ -166,6 +169,39 @@ final class ClipboardHistory {
     private static func preview(_ text: String) -> String {
         let flat = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         return flat.count > 26 ? String(flat.prefix(25)) + "…" : flat
+    }
+
+    /// A converted file joins the Eco queue without replacing what's on the clipboard.
+    func add(files urls: [URL]) {
+        guard let url = urls.first else { return }
+        var dict: [NSPasteboard.PasteboardType: Data] = [.fileURL: Data(url.absoluteString.utf8)]
+        var thumbnail: NSImage? = NSWorkspace.shared.icon(forFile: url.path)
+        let ext = url.pathExtension.lowercased()
+        if urls.count == 1, FileInspector.kind(of: url) == .image, let data = try? Data(contentsOf: url) {
+            if let type = UTType(filenameExtension: ext) { dict[NSPasteboard.PasteboardType(type.identifier)] = data }
+            if let image = NSImage(data: data) {
+                thumbnail = image
+                if let tiff = image.tiffRepresentation { dict[.tiff] = tiff }
+            }
+        }
+        if urls.count == 1, ["md", "txt", "html", "csv", "json"].contains(ext), let text = try? String(contentsOf: url, encoding: .utf8) {
+            dict[.string] = Data(text.utf8)
+        }
+        let items: [[NSPasteboard.PasteboardType: Data]] = urls.count == 1
+            ? [dict]
+            : urls.map { [.fileURL: Data($0.absoluteString.utf8)] }
+        let signature = "f:" + urls.map(\.path).joined(separator: "|")
+        entries.removeAll { $0.signature == signature }
+        entries.insert(Entry(items: items, label: urls.count == 1 ? url.lastPathComponent : "\(urls.count) file",
+                             symbol: "doc", thumbnail: thumbnail, signature: signature), at: 0)
+        if entries.count > Self.capacity { entries.removeLast(entries.count - Self.capacity) }
+    }
+
+    func remove(files urls: [URL]) {
+        let paths = Set(urls.map(\.path))
+        entries.removeAll { entry in
+            entry.signature.hasPrefix("f:") && entry.signature.dropFirst(2).split(separator: "|").contains { paths.contains(String($0)) }
+        }
     }
 
     /// Puts the entry back on the clipboard and pastes it into the front app.

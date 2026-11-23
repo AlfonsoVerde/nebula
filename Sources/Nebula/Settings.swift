@@ -5,8 +5,12 @@ import ServiceManagement
 import SwiftUI
 
 extension Shortcut {
-    /// ⌥⌘V: last copied items.
+    /// ⌥⌘V: Eco (last copied items).
     static let pasteDefault = Shortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(optionKey | cmdKey), key: "V")
+    /// ⌥ Space: Pulsar (edit the selected files).
+    static let pulsarDefault = Shortcut(keyCode: UInt32(kVK_Space), modifiers: UInt32(optionKey), key: "Spazio")
+    /// ⌥⌫: Buco nero (expire / clean).
+    static let blackHoleDefault = Shortcut(keyCode: UInt32(kVK_Delete), modifiers: UInt32(optionKey), key: "⌫")
 }
 
 @MainActor
@@ -26,6 +30,23 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    @Published var pulsarShortcut: Shortcut {
+        didSet { Self.store(pulsarShortcut, "pulsarShortcut") }
+    }
+    @Published var blackHoleShortcut: Shortcut {
+        didSet { Self.store(blackHoleShortcut, "blackHoleShortcut") }
+    }
+
+    private static func store(_ shortcut: Shortcut, _ key: String) {
+        if let data = try? JSONEncoder().encode(shortcut) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    private static func load(_ key: String, _ fallback: Shortcut) -> Shortcut {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let saved = try? JSONDecoder().decode(Shortcut.self, from: data) else { return fallback }
+        return saved
+    }
+
     /// True while the recorder is listening (shortcuts are paused).
     @Published var recording = false
 
@@ -33,11 +54,9 @@ final class AppSettings: ObservableObject {
         let d = UserDefaults.standard
         trigger = TriggerKey(rawValue: d.string(forKey: "trigger") ?? "") ?? .option
         clipboardOutsideFinder = d.object(forKey: "clipboardOutsideFinder") as? Bool ?? true
-        if let data = d.data(forKey: "pasteShortcut"), let saved = try? JSONDecoder().decode(Shortcut.self, from: data) {
-            pasteShortcut = saved
-        } else {
-            pasteShortcut = .pasteDefault
-        }
+        pasteShortcut = Self.load("pasteShortcut", .pasteDefault)
+        pulsarShortcut = Self.load("pulsarShortcut", .pulsarDefault)
+        blackHoleShortcut = Self.load("blackHoleShortcut", .blackHoleDefault)
     }
 }
 
@@ -54,17 +73,29 @@ struct SettingsView: View {
                 Picker("Tasto della nebula", selection: $settings.trigger) {
                     ForEach(TriggerKey.allCases) { Text($0.title).tag($0) }
                 }
-                Text("Tieni premuto il tasto da solo. Con un file selezionato nel Finder la nebula compare subito; altrove parte un caricatore di 1,5 s e la nebula lavora su ciò che hai copiato. Punta un formato e rilascia, oppure dai uno strattone deciso dal centro verso il formato. Clic al centro = copia il file; l'interruttore Mini sotto la nebula riduce le dimensioni dei file creati. ⌘Z annulla subito l'ultima azione. Se usi il tasto insieme ad altri, funziona come sempre.")
+                Text("Tieni premuto il tasto da solo. Con un file selezionato nel Finder la Nebula compare subito; altrove parte un caricatore di 1,5 s (premi due volte per dimezzarlo) e la Nebula lavora su ciò che hai copiato: il risultato finisce in Eco. Punta e rilascia, oppure dai uno strattone deciso dal centro. Clic al centro = copia il file. ⌘Z annulla subito l'ultima azione. Se usi il tasto insieme ad altri, funziona come sempre.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Toggle("Fuori dal Finder usa gli appunti", isOn: $settings.clipboardOutsideFinder)
             }
             Section {
-                LabeledContent("Ultimi copiati") {
+                LabeledContent("Pulsar · modifica") {
+                    ShortcutRecorder(shortcut: $settings.pulsarShortcut, fallback: .pulsarDefault, settings: settings)
+                }
+                LabeledContent("Buco nero · scadenza e pulizia") {
+                    ShortcutRecorder(shortcut: $settings.blackHoleShortcut, fallback: .blackHoleDefault, settings: settings)
+                }
+                Text("Attive solo nel Finder con file selezionati, e mai mentre rinomini un file. Pulsar: Mini, unire, svuotare o proteggere PDF, tagliare o rendere muti i video, scontornare, estrarre testo, oscurare volti e targhe, raggruppare e rinominare il contenuto delle cartelle. Buco nero: scadenza a 1, 7 o 30 giorni (poi il file va nel Cestino) e pulizia di GPS e metadati.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                LabeledContent("Eco · ultimi copiati") {
                     ShortcutRecorder(shortcut: $settings.pasteShortcut, fallback: .pasteDefault, settings: settings)
                 }
-                Text("Tienila premuta per scegliere tra le ultime 3 cose copiate; rilascia per incollare. Nel Finder ⌥⌘V serve anche a spostare i file: se ti serve, scegli un'altra combinazione.")
+                Text("Tienila premuta per scegliere tra le ultime 3 cose copiate (e i file convertiti dagli appunti); rilascia per incollare. Nel Finder ⌥⌘V serve anche a spostare i file: se ti serve, scegli un'altra combinazione.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

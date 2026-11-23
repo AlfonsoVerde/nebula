@@ -34,8 +34,11 @@ struct PasteboardSnapshot {
 @MainActor
 final class UndoCenter {
     enum Action {
-        case files([URL], restoring: PasteboardSnapshot?)  // created files → Trash
-        case pasteboard(PasteboardSnapshot)                // copied → previous clipboard
+        case files([URL], restoring: PasteboardSnapshot?)        // created files → Trash
+        case pasteboard(PasteboardSnapshot)                      // copied → previous clipboard
+        case moves([(from: URL, to: URL)], created: [URL])       // grouped / renamed → back
+        case replaced([(original: URL, backup: URL)])            // cleaned in place → original
+        case expiry([URL])                                       // expiry set → removed
     }
 
     static let shared = UndoCenter()
@@ -71,9 +74,20 @@ final class UndoCenter {
         switch action {
         case .files(let urls, let snapshot):
             for url in urls { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            ClipboardHistory.shared.remove(files: urls)
             snapshot?.restore()
         case .pasteboard(let snapshot):
             snapshot.restore()
+        case .moves(let moves, let created):
+            let fm = FileManager.default
+            for move in moves.reversed() { try? fm.moveItem(at: move.to, to: move.from) }
+            for folder in created where ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? ["x"]).filter({ $0 != ".DS_Store" }).isEmpty {
+                try? fm.removeItem(at: folder)
+            }
+        case .replaced(let pairs):
+            for pair in pairs { _ = try? FileManager.default.replaceItemAt(pair.original, withItemAt: pair.backup) }
+        case .expiry(let urls):
+            ExpiryStore.shared.remove(urls)
         }
         Toast.show("Annullato", symbol: "arrow.uturn.backward")
         return true

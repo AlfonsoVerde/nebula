@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
@@ -7,9 +8,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem!
     private let trigger = TriggerMonitor()
     private let pasteKey = HotKey()
+    private let pulsarKey = HotKey()
+    private let blackHoleKey = HotKey()
+    private let panels = ToolPanelController()
+    private var lastTriggerUp: CFTimeInterval = 0
     private let nebula = NebulaController()
     private let loader = PointerLoader()
-    private let history = ClipboardHistory()
+    private var history: ClipboardHistory { ClipboardHistory.shared }
     private let settings = AppSettings.shared
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
@@ -28,7 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSUpdateDynamicServices()
 
         history.start()
+        ExpiryStore.shared.start()
         nebula.onPaste = { [weak self] entry in self?.history.paste(entry) }
+        nebula.onPanel = { [weak self] tool, files in self?.panels.open(tool, files: files) }
 
         trigger.onPress = { [weak self] in self?.triggerDown() }
         trigger.onRelease = { [weak self] in self?.triggerUp() }
@@ -39,17 +46,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .sink { [weak self] key in self?.trigger.key = key }
             .store(in: &cancellables)
 
-        pasteKey.onPress = { [weak self] in self?.showPasteNebula() }
+        pasteKey.onPress = { [weak self] in self?.showEco() }
         Publishers.CombineLatest(settings.$pasteShortcut, settings.$recording)
             .sink { [weak self] shortcut, recording in
                 if recording { self?.pasteKey.unregister() } else { self?.pasteKey.register(shortcut) }
             }
             .store(in: &cancellables)
 
+        pulsarKey.onPress = { [weak self] in self?.showTools(.pulsar) }
+        blackHoleKey.onPress = { [weak self] in self?.showTools(.blackHole) }
+        Publishers.CombineLatest3(settings.$pulsarShortcut, settings.$blackHoleShortcut, settings.$recording)
+            .sink { [weak self] pulsar, blackHole, recording in
+                self?.updateFinderKeys(pulsar: pulsar, blackHole: blackHole, recording: recording)
+            }
+            .store(in: &cancellables)
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.updateFinderKeys(pulsar: self.settings.pulsarShortcut, blackHole: self.settings.blackHoleShortcut,
+                                      recording: self.settings.recording)
+            }
+        }
+
         if !Accessibility.isTrusted { Accessibility.prompt() }
         _ = UndoCenter.shared
-        if !UserDefaults.standard.bool(forKey: "launchedV4") {
-            UserDefaults.standard.set(true, forKey: "launchedV4")
+        if !UserDefaults.standard.bool(forKey: "launchedV5") {
+            UserDefaults.standard.set(true, forKey: "launchedV5")
             openSettings()
         }
     }
@@ -78,8 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // Anywhere else → loader around the pointer, then the clipboard.
+        // Pressing ⌥ twice in a row runs the loader at double speed.
         guard settings.clipboardOutsideFinder else { return }
-        loader.start(duration: Self.loaderDuration) { [weak self] in
+        let doubleTap = CACurrentMediaTime() - lastTriggerUp < 0.4
+        loader.start(duration: doubleTap ? Self.loaderDuration / 2 : Self.loaderDuration) { [weak self] in
             self?.showClipboardNebula()
         }
     }
@@ -93,24 +118,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func triggerUp() {
+        lastTriggerUp = CACurrentMediaTime()
         pendingShow?.cancel()
         loader.cancel()
-        if !nebula.isPasteMode { nebula.release() }
+        if nebula.kind == .nebula { nebula.release() }
     }
 
     private func triggerInterrupted() {
         pendingShow?.cancel()
         loader.cancel()
-        if !nebula.isPasteMode { nebula.cancelHold() }
+        if nebula.kind == .nebula { nebula.cancelHold() }
     }
 
-    /// Paste nebula: it lives while ⌥ and ⌘ are both held.
+    /// Eco lives while ⌥ and ⌘ are held; Pulsar and Buco nero while ⌥ is held.
     private func flagsChanged(_ flags: NSEvent.ModifierFlags) {
-        guard nebula.isPasteMode else { return }
-        if !flags.contains(.option) || !flags.contains(.command) { nebula.release() }
+        guard nebula.isVisible, nebula.isHolding else { return }
+        switch nebula.kind {
+        case .eco:
+            if !flags.contains(.option) || !flags.contains(.command) { nebula.release() }
+        case .pulsar, .blackHole:
+            if !flags.contains(.option) { nebula.release() }
+        default:
+            break
+        }
     }
 
-    private func showPasteNebula() {
+    private func showEco() {
         guard !settings.recording else { return }
         pendingShow?.cancel()
         loader.cancel()
@@ -118,7 +151,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSSound.beep()
             return
         }
-        nebula.presentPaste(history.entries, at: NSEvent.mouseLocation, holding: true)
+        nebula.presentEco(history.entries, at: NSEvent.mouseLocation, holding: true)
+    }
+
+    // MARK: - Pulsar & Buco nero (Finder only)
+
+    private func updateFinderKeys(pulsar: Shortcut, blackHole: Shortcut, recording: Bool) {
+        let active = !recording && FinderBridge.finderIsFrontmost
+        if active {
+            pulsarKey.register(pulsar)
+            blackHoleKey.register(blackHole)
+        } else {
+            pulsarKey.unregister()
+            blackHoleKey.unregister()
+        }
+    }
+
+    private func showTools(_ kind: NebulaModel.Kind) {
+        let key = kind == .pulsar ? pulsarKey : blackHoleKey
+        let shortcut = kind == .pulsar ? settings.pulsarShortcut : settings.blackHoleShortcut
+        // Renaming a file or typing in the search field: give the keystroke back.
+        if FinderBridge.isEditingText {
+            passThrough(key, shortcut)
+            return
+        }
+        let urls = FinderBridge.selection()
+        guard !urls.isEmpty else {
+            passThrough(key, shortcut)
+            return
+        }
+        pendingShow?.cancel()
+        loader.cancel()
+        nebula.close()
+        let tools = kind == .pulsar ? ToolCatalog.pulsar(for: urls) : ToolCatalog.blackHole(for: urls)
+        let holding = NSEvent.modifierFlags.contains(.option)
+        nebula.presentTools(tools, files: urls, kind: kind, at: NSEvent.mouseLocation, holding: holding)
+    }
+
+    /// Re-sends a keystroke that a Nebula shortcut caught but didn't need.
+    private func passThrough(_ key: HotKey, _ shortcut: Shortcut) {
+        key.unregister()
+        let source = CGEventSource(stateID: .combinedSessionState)
+        var flags: CGEventFlags = []
+        if shortcut.modifiers & UInt32(optionKey) != 0 { flags.insert(.maskAlternate) }
+        if shortcut.modifiers & UInt32(cmdKey) != 0 { flags.insert(.maskCommand) }
+        if shortcut.modifiers & UInt32(controlKey) != 0 { flags.insert(.maskControl) }
+        if shortcut.modifiers & UInt32(shiftKey) != 0 { flags.insert(.maskShift) }
+        for down in [true, false] {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(shortcut.keyCode), keyDown: down)
+            event?.flags = flags
+            event?.post(tap: .cghidEventTap)
+        }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard let self else { return }
+            self.updateFinderKeys(pulsar: self.settings.pulsarShortcut, blackHole: self.settings.blackHoleShortcut,
+                                  recording: self.settings.recording)
+        }
     }
 
     // MARK: - Actions

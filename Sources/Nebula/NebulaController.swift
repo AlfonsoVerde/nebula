@@ -8,6 +8,7 @@ struct NebulaItem: Identifiable, Equatable {
     enum Action {
         case convert(ConversionTarget)
         case paste(ClipboardHistory.Entry)
+        case tool(Tool)
     }
 
     let id: String
@@ -15,8 +16,6 @@ struct NebulaItem: Identifiable, Equatable {
     let symbol: String
     let thumbnail: NSImage?
     let action: Action
-    /// "Same format, smaller": lives in the bottom slot, shown only with Mini on.
-    var isSameFormat = false
 
     static func == (a: NebulaItem, b: NebulaItem) -> Bool { a.id == b.id }
 }
@@ -25,7 +24,8 @@ struct NebulaItem: Identifiable, Equatable {
 
 @MainActor
 final class NebulaModel: ObservableObject {
-    enum Kind { case files, paste }
+    /// Nebula converts · Eco pastes · Pulsar edits · Buco nero expires / cleans.
+    enum Kind { case nebula, eco, pulsar, blackHole }
     enum Phase { case idle, launching, converting, done, failed }
 
     /// Physics snapshot, published once per frame.
@@ -34,7 +34,7 @@ final class NebulaModel: ObservableObject {
         var spin: Double = 0
         var bulge: CGVector = .zero   // direction + strength of the squish (fraction of radius)
         var scale: CGFloat = 0        // pop in / out
-        var size: CGFloat = 1         // 1 = full nebula, 0.5 = compact progress pill
+        var size: CGFloat = 1         // 1 = full, 0.5 = compact progress pill
     }
 
     /// A pointer move that started at rest in the center (candidate flick).
@@ -52,8 +52,6 @@ final class NebulaModel: ObservableObject {
     @Published private(set) var message = ""
     @Published private(set) var holding: Bool
     @Published private(set) var centerHover = false
-    @Published private(set) var toggleHover = false
-    @Published private(set) var miniOn: Bool
     @Published private(set) var canUndo = false
     @Published private(set) var frame = Frame()
 
@@ -63,16 +61,15 @@ final class NebulaModel: ObservableObject {
     let fromClipboard: Bool
     let icon: NSImage?
     let badge: String
-    let canMiniaturize: Bool
     let canCopy: Bool
     let favoriteID: String?
     let habitKey: String
-    private let hasSameSlot: Bool
 
     /// Nebula center in screen coordinates.
     var center: NSPoint = .zero
     var onClose: () -> Void = {}
     var onPaste: (ClipboardHistory.Entry) -> Void = { _ in }
+    var onPanel: (Tool, [URL]) -> Void = { _, _ in }
 
     private var outputs: [URL] = []
     private var velocity = CGVector.zero
@@ -89,11 +86,11 @@ final class NebulaModel: ObservableObject {
     static let deadzone: CGFloat = 26
     /// A flick must reach beyond the edge of the blob…
     static let flickReach: CGFloat = radius + 14
-    /// Where the Mini toggle sits, below the blob (SwiftUI coordinates, from the center).
-    static let toggleOffset: CGFloat = radius + 26
+    static let maxItems = 8
 
+    /// Nebula: conversions for files (or clipboard content).
     init(files: [URL], fromClipboard: Bool, holding: Bool) {
-        kind = .files
+        kind = .nebula
         self.files = files
         self.fromClipboard = fromClipboard
         self.holding = holding
@@ -103,35 +100,37 @@ final class NebulaModel: ObservableObject {
         var targets = ConversionCatalog.targets(for: files)
         let order = Habits.shared.arrange(targets.map(\.id), key: key)
         targets.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
-        var list = targets.prefix(10).map {
+        items = targets.prefix(Self.maxItems).map {
             NebulaItem(id: $0.id, label: $0.label, symbol: $0.symbol, thumbnail: nil, action: .convert($0))
         }
-
-        let firstKind = FileInspector.kind(of: files[0])
-        canMiniaturize = !(fromClipboard && [FileKind.plainText, .markdown, .richDocument].contains(firstKind))
         canCopy = !fromClipboard
-        if canMiniaturize {
-            let exts = Set(files.map { $0.pathExtension.uppercased() })
-            let label = exts.count == 1 && !(exts.first ?? "").isEmpty ? exts.first! : "Riduci"
-            list.append(NebulaItem(id: "any.same", label: label, symbol: "arrow.down.right.and.arrow.up.left",
-                                   thumbnail: nil, action: .convert(ConversionCatalog.mini), isSameFormat: true))
-        }
-        hasSameSlot = canMiniaturize
-        items = list
-
         icon = NSWorkspace.shared.icon(forFile: files[0].path)
-        if files.count == 1 {
-            let ext = files[0].pathExtension.uppercased()
-            badge = ext.isEmpty ? firstKind.label.uppercased() : ext
-        } else {
-            badge = "\(files.count) FILE"
-        }
-        miniOn = canMiniaturize && Habits.shared.mini(for: key)
+        badge = Self.badge(for: files)
         favoriteID = Habits.shared.favorite(key: key)
     }
 
+    /// Pulsar / Buco nero: tools for the selected files.
+    init(tools: [Tool], files: [URL], kind: Kind, holding: Bool) {
+        self.kind = kind
+        self.files = files
+        fromClipboard = false
+        self.holding = holding
+        let key = (kind == .pulsar ? "pulsar:" : "bh:") + Habits.key(for: files)
+        habitKey = key
+        let order = Habits.shared.arrange(tools.map(\.rawValue), key: key)
+        let sorted = tools.sorted { (order.firstIndex(of: $0.rawValue) ?? 0) < (order.firstIndex(of: $1.rawValue) ?? 0) }
+        items = sorted.prefix(Self.maxItems).map {
+            NebulaItem(id: $0.rawValue, label: $0.label, symbol: $0.symbol, thumbnail: nil, action: .tool($0))
+        }
+        canCopy = false
+        icon = NSWorkspace.shared.icon(forFile: files[0].path)
+        badge = Self.badge(for: files)
+        favoriteID = Habits.shared.favorite(key: key)
+    }
+
+    /// Eco: last copied items.
     init(entries: [ClipboardHistory.Entry], holding: Bool) {
-        kind = .paste
+        kind = .eco
         files = []
         fromClipboard = false
         self.holding = holding
@@ -139,28 +138,29 @@ final class NebulaModel: ObservableObject {
             NebulaItem(id: $0.id.uuidString, label: $0.label, symbol: $0.symbol, thumbnail: $0.thumbnail, action: .paste($0))
         }
         icon = nil
-        badge = "INCOLLA"
-        canMiniaturize = false
+        badge = "ECO"
         canCopy = false
-        hasSameSlot = false
-        miniOn = false
         favoriteID = nil
         habitKey = ""
     }
 
-    /// Slot angle. With Mini available the bottom slot is reserved for "same format".
-    func angle(_ index: Int) -> CGFloat {
-        let n = max(items.count, 1)
-        var slot = index
-        if hasSameSlot {
-            let bottom = n / 2
-            if index == n - 1 { slot = bottom } else if index >= bottom { slot = index + 1 }
-        }
-        return -.pi / 2 + CGFloat(slot) / CGFloat(n) * 2 * .pi
+    private static func badge(for files: [URL]) -> String {
+        guard files.count == 1 else { return "\(files.count) FILE" }
+        let ext = files[0].pathExtension.uppercased()
+        return ext.isEmpty ? FileInspector.kind(of: files[0]).label.uppercased() : ext
     }
 
-    func isAvailable(_ index: Int) -> Bool {
-        index < items.count && (!items[index].isSameFormat || miniOn)
+    func angle(_ index: Int) -> CGFloat {
+        -.pi / 2 + CGFloat(index) / CGFloat(max(items.count, 1)) * 2 * .pi
+    }
+
+    /// Ring radius for the options: roomier when there are many.
+    var optionRadius: CGFloat {
+        switch items.count {
+        case ...3: 54
+        case ...5: 58
+        default: 63
+        }
     }
 
     // MARK: Loop
@@ -187,7 +187,7 @@ final class NebulaModel: ObservableObject {
 
         var f = frame
         f.t += Double(dt)
-        f.spin += Double(dt) * (phase == .converting ? 1.8 : 0.14)
+        f.spin += Double(dt) * (phase == .converting ? 1.8 : (kind == .blackHole ? 0.5 : 0.14))
 
         let mouse = NSEvent.mouseLocation
         let dx = mouse.x - center.x
@@ -200,15 +200,14 @@ final class NebulaModel: ObservableObject {
         switch phase {
         case .idle:
             guard !closing else { break }
-            let overToggle = canMiniaturize && abs(dx) < 40 && abs(dy - Self.toggleOffset) < 16
-            if toggleHover != overToggle { toggleHover = overToggle }
             let overCenter = canCopy && distance <= Self.deadzone
             if centerHover != overCenter { centerHover = overCenter }
 
-            if distance <= Self.deadzone || overToggle {
+            if distance <= Self.deadzone || items.isEmpty {
                 if selected != nil { selected = nil }
-                gesture = distance <= Self.deadzone ? Gesture(start: CGPoint(x: dx, y: dy), last: CGPoint(x: dx, y: dy), time: f.t, path: 0) : nil
-            } else if let index = nearestIndex(to: atan2(dy, dx)) {
+                gesture = Gesture(start: CGPoint(x: dx, y: dy), last: CGPoint(x: dx, y: dy), time: f.t, path: 0)
+            } else {
+                let index = nearestIndex(to: atan2(dy, dx))
                 if selected != index {
                     selected = index
                     NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
@@ -258,7 +257,6 @@ final class NebulaModel: ObservableObject {
 
     /// A flick is deliberate: it starts at rest in the center, goes out in an almost
     /// straight line, crosses the edge of the blob quickly and travels far enough.
-    /// Fidgeting, or fast moves that didn't start from the center, never count.
     private func detectFlick(dx: CGFloat, dy: CGFloat, distance: CGFloat, age: Double) -> Bool {
         guard var g = gesture else { return false }
         let p = CGPoint(x: dx, y: dy)
@@ -280,10 +278,10 @@ final class NebulaModel: ObservableObject {
         return false
     }
 
-    private func nearestIndex(to phi: CGFloat) -> Int? {
-        var best: Int?
+    private func nearestIndex(to phi: CGFloat) -> Int {
+        var best = 0
         var bestDelta = CGFloat.greatestFiniteMagnitude
-        for i in items.indices where isAvailable(i) {
+        for i in items.indices {
             let a = angle(i)
             let delta = abs(atan2(sin(phi - a), cos(phi - a)))
             if delta < bestDelta { bestDelta = delta; best = i }
@@ -336,14 +334,6 @@ final class NebulaModel: ObservableObject {
         }
     }
 
-    func toggleMini() {
-        guard phase == .idle, canMiniaturize else { return }
-        miniOn.toggle()
-        Habits.shared.setMini(miniOn, key: habitKey)
-        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
-        if let selected, !isAvailable(selected) { self.selected = nil }
-    }
-
     func outsideClick() {
         if phase != .converting && phase != .launching { requestClose() }
     }
@@ -363,22 +353,21 @@ final class NebulaModel: ObservableObject {
         default:
             guard phase == .idle, let chars = event.charactersIgnoringModifiers, let n = Int(chars) else { return false }
             let index = n == 0 ? 9 : n - 1
-            guard isAvailable(index) else { return false }
+            guard index < items.count else { return false }
             launch(index)
             return true
         }
     }
 
     private func launch(_ index: Int) {
-        guard phase == .idle, !closing, isAvailable(index) else { return }
+        guard phase == .idle, !closing, index < items.count else { return }
         selected = index
         launchedIndex = index
         launchTime = frame.t
         phase = .launching
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
-        if kind == .files {
-            let shown = items.filter { !$0.isSameFormat }.map(\.id)
-            Habits.shared.record(items[index].id, key: habitKey, shown: shown)
+        if kind != .eco {
+            Habits.shared.record(items[index].id, key: habitKey, shown: items.map(\.id))
         }
     }
 
@@ -386,15 +375,23 @@ final class NebulaModel: ObservableObject {
         guard let index = launchedIndex else { return }
         switch items[index].action {
         case .convert(let target):
-            startConversion(target, shrink: miniOn && !items[index].isSameFormat)
+            startConversion(target)
         case .paste(let entry):
             phase = .done
             onPaste(entry)
             requestClose()
+        case .tool(let tool):
+            if tool.needsPanel {
+                phase = .done
+                onPanel(tool, files)
+                requestClose()
+            } else {
+                startTool(tool)
+            }
         }
     }
 
-    private func startConversion(_ target: ConversionTarget, shrink: Bool) {
+    private func startConversion(_ target: ConversionTarget) {
         progress = 0
         phase = .converting
 
@@ -403,37 +400,57 @@ final class NebulaModel: ObservableObject {
         let box = WeakModel(self)
         Task { [weak self] in
             do {
-                var outs = try await ConversionEngine.run(target, on: files) { p in
-                    Task { @MainActor in box.value?.bump(shrink ? p * 0.85 : p) }
+                let outs = try await ConversionEngine.run(target, on: files) { p in
+                    Task { @MainActor in box.value?.bump(p) }
                 }
-                if shrink && !target.combines {
-                    var smaller: [URL] = []
-                    for out in outs { smaller.append(await Miniaturizer.shrink(out)) }
-                    outs = smaller
-                }
-                var before: PasteboardSnapshot?
-                if fromClipboard {
-                    before = PasteboardSnapshot.capture()
-                    ClipboardWriter.put(outs)
-                }
-                UndoCenter.shared.register(.files(outs, restoring: before))
-                guard let self else { return }
-                self.outputs = outs
-                self.progress = 1
-                self.canUndo = true
-                self.message = fromClipboard ? "Copiato" : "Mostra"
-                self.phase = .done
-                NSSound(named: "Glass")?.play()
-                try? await Task.sleep(nanoseconds: 2_200_000_000)
-                if self.phase == .done { self.requestClose() }
+                // From the clipboard: the result joins the Eco queue, the clipboard stays as it was.
+                if fromClipboard { ClipboardHistory.shared.add(files: outs) }
+                UndoCenter.shared.register(.files(outs, restoring: nil))
+                self?.finish(outputs: outs, message: fromClipboard ? "In Eco" : "Mostra")
             } catch {
-                guard let self else { return }
-                self.message = error.localizedDescription
-                self.phase = .failed
-                NSSound(named: "Basso")?.play()
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
-                self.requestClose()
+                self?.fail(error)
             }
+        }
+    }
+
+    private func startTool(_ tool: Tool) {
+        progress = 0
+        phase = .converting
+        let files = self.files
+        let box = WeakModel(self)
+        Task { [weak self] in
+            do {
+                let result = try await ToolRunner.run(tool, on: files) { p in
+                    Task { @MainActor in box.value?.bump(p) }
+                }
+                if let undo = result.undo { UndoCenter.shared.register(undo) }
+                self?.finish(outputs: result.outputs, message: result.message, undoable: result.undo != nil)
+            } catch {
+                self?.fail(error)
+            }
+        }
+    }
+
+    private func finish(outputs outs: [URL], message: String, undoable: Bool = true) {
+        outputs = outs
+        progress = 1
+        canUndo = undoable
+        self.message = message
+        phase = .done
+        NSSound(named: "Glass")?.play()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            if self?.phase == .done { self?.requestClose() }
+        }
+    }
+
+    private func fail(_ error: Error) {
+        message = error.localizedDescription
+        phase = .failed
+        NSSound(named: "Basso")?.play()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            self?.requestClose()
         }
     }
 
@@ -488,8 +505,10 @@ final class NebulaController {
     private var monitors: [Any] = []
 
     var onPaste: (ClipboardHistory.Entry) -> Void = { _ in }
+    var onPanel: (Tool, [URL]) -> Void = { _, _ in }
     var isVisible: Bool { panel != nil }
-    var isPasteMode: Bool { model?.kind == .paste }
+    var kind: NebulaModel.Kind? { model?.kind }
+    var isHolding: Bool { model?.holding ?? false }
 
     func present(files urls: [URL], fromClipboard: Bool, at point: NSPoint, holding: Bool) {
         let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -497,8 +516,14 @@ final class NebulaController {
         show(NebulaModel(files: files, fromClipboard: fromClipboard, holding: holding), at: point)
     }
 
-    func presentPaste(_ entries: [ClipboardHistory.Entry], at point: NSPoint, holding: Bool) {
+    func presentEco(_ entries: [ClipboardHistory.Entry], at point: NSPoint, holding: Bool) {
         show(NebulaModel(entries: entries, holding: holding), at: point)
+    }
+
+    func presentTools(_ tools: [Tool], files urls: [URL], kind: NebulaModel.Kind, at point: NSPoint, holding: Bool) {
+        let files = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !files.isEmpty, !tools.isEmpty else { NSSound.beep(); return }
+        show(NebulaModel(tools: tools, files: files, kind: kind, holding: holding), at: point)
     }
 
     private func show(_ model: NebulaModel, at point: NSPoint) {
@@ -508,6 +533,7 @@ final class NebulaController {
             self.close()
         }
         model.onPaste = { [weak self] entry in self?.onPaste(entry) }
+        model.onPanel = { [weak self] tool, files in self?.onPanel(tool, files) }
 
         let side = NebulaView.side
         let slack: CGFloat = 50

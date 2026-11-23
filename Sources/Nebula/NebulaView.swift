@@ -44,6 +44,40 @@ struct BlobShape: Shape {
     }
 }
 
+// MARK: - Themes
+
+/// Each mode has its own sky: Nebula violet, Eco icy teal, Pulsar cyan with
+/// rotating beams, Buco nero dark with a warm accretion ring.
+struct NebulaTheme {
+    let clouds: [Double]
+    let glow: Double
+    let base: (Color, Color)
+    let dust: (start: Double, span: Double)
+    let beams: Bool
+    let accretion: Bool
+
+    static func of(_ kind: NebulaModel.Kind) -> NebulaTheme {
+        switch kind {
+        case .nebula:
+            NebulaTheme(clouds: [0.76, 0.92, 0.60], glow: 0.72,
+                        base: (Color(red: 0.11, green: 0.06, blue: 0.24), Color(red: 0.02, green: 0.02, blue: 0.07)),
+                        dust: (0.58, 0.36), beams: false, accretion: false)
+        case .eco:
+            NebulaTheme(clouds: [0.50, 0.56, 0.62], glow: 0.52,
+                        base: (Color(red: 0.04, green: 0.12, blue: 0.16), Color(red: 0.01, green: 0.04, blue: 0.06)),
+                        dust: (0.48, 0.16), beams: false, accretion: false)
+        case .pulsar:
+            NebulaTheme(clouds: [0.52, 0.47, 0.58], glow: 0.50,
+                        base: (Color(red: 0.03, green: 0.10, blue: 0.18), Color(red: 0.01, green: 0.03, blue: 0.07)),
+                        dust: (0.50, 0.12), beams: true, accretion: false)
+        case .blackHole:
+            NebulaTheme(clouds: [0.06, 0.98, 0.03], glow: 0.05,
+                        base: (Color(red: 0.06, green: 0.03, blue: 0.02), Color(red: 0.0, green: 0.0, blue: 0.0)),
+                        dust: (0.02, 0.10), beams: false, accretion: true)
+        }
+    }
+}
+
 // MARK: - Root
 
 struct NebulaView: View {
@@ -53,6 +87,7 @@ struct NebulaView: View {
 
     var body: some View {
         let f = model.frame
+        let theme = NebulaTheme.of(model.kind)
         let R = NebulaModel.radius * f.size
         let shape = BlobShape(radius: R, bulge: f.bulge, t: f.t)
         let shift = BlobGeometry.shift(f.bulge, radius: R)
@@ -64,11 +99,11 @@ struct NebulaView: View {
                 .fill(Color.black.opacity(0.012))
                 .frame(width: Self.side, height: Self.side)
 
-            // Blob: see-through smoked glass with a faint galaxy inside.
+            // Blob: see-through smoked glass with a faint sky inside.
             ZStack {
                 shape.fill(.ultraThinMaterial).opacity(0.38)
-                shape.fill(Color.black.opacity(0.26))
-                GalaxyFill(t: f.t, spin: f.spin, bulge: f.bulge, radius: R)
+                shape.fill(Color.black.opacity(model.kind == .blackHole ? 0.42 : 0.26))
+                GalaxyFill(t: f.t, spin: f.spin, bulge: f.bulge, radius: R, theme: theme)
                     .clipShape(shape)
                 shape.stroke(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.08), .white.opacity(0.2)],
                                             startPoint: .top, endPoint: .bottom),
@@ -76,7 +111,7 @@ struct NebulaView: View {
             }
             .background(
                 shape
-                    .fill(Color(hue: 0.72, saturation: 0.75, brightness: 0.95).opacity(0.2))
+                    .fill(Color(hue: theme.glow, saturation: 0.75, brightness: 0.95).opacity(0.2))
                     .blur(radius: 18)
             )
 
@@ -87,24 +122,21 @@ struct NebulaView: View {
             // Options: each on its own small disc, readable on any background.
             ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
                 let a = model.angle(index)
-                let base: CGFloat = model.items.count > 7 ? 62 : 58
-                let r = base * (1 + 0.85 * BlobGeometry.factor(a, bulge: f.bulge))
+                let r = model.optionRadius * (1 + 0.85 * BlobGeometry.factor(a, bulge: f.bulge))
                 let launched = model.launchedIndex == index
-                let available = model.isAvailable(index)
                 OptionItem(item: item,
                            selected: model.selected == index,
                            dimmed: model.selected != nil && model.selected != index,
-                           wide: model.kind == .paste,
-                           favorite: item.id == model.favoriteID)
+                           wide: model.kind == .eco,
+                           favorite: item.id == model.favoriteID,
+                           accent: theme.glow)
                     .position(x: Self.side / 2 + shift.width + cos(a) * r,
                               y: Self.side / 2 + shift.height + sin(a) * r)
-                    .scaleEffect(launched ? 1.7 : (idle && available ? 1 : 0.6))
-                    .opacity(idle && available ? 1 : 0)
+                    .scaleEffect(launched ? 1.7 : (idle ? 1 : 0.6))
+                    .opacity(idle ? 1 : 0)
                     .animation(.easeOut(duration: launched ? 0.32 : 0.18), value: model.phase)
-                    .animation(.spring(response: 0.32, dampingFraction: 0.62), value: available)
             }
 
-            // Center: Copy button.
             CenterContent(model: model)
                 .offset(shift)
             if idle && model.canCopy {
@@ -113,15 +145,6 @@ struct NebulaView: View {
                     .contentShape(Circle())
                     .onTapGesture { model.copyFiles() }
                     .offset(shift)
-            }
-
-            // Mini toggle: separate, below the blob.
-            if model.canMiniaturize {
-                MiniToggle(on: model.miniOn, hover: model.toggleHover)
-                    .onTapGesture { model.toggleMini() }
-                    .offset(y: NebulaModel.toggleOffset)
-                    .opacity(idle ? 1 : 0)
-                    .animation(.easeOut(duration: 0.18), value: idle)
             }
         }
         .frame(width: Self.side, height: Self.side)
@@ -140,6 +163,7 @@ struct GalaxyFill: View {
     let spin: Double
     let bulge: CGVector
     let radius: CGFloat
+    let theme: NebulaTheme
 
     var body: some View {
         Canvas { ctx, size in
@@ -153,16 +177,16 @@ struct GalaxyFill: View {
 
             // Deep-space base over the glass.
             ctx.fill(disc(c, R * 1.6), with: .radialGradient(
-                Gradient(colors: [Color(red: 0.11, green: 0.06, blue: 0.24).opacity(0.30),
-                                  Color(red: 0.02, green: 0.02, blue: 0.07).opacity(0.36)]),
+                Gradient(colors: [theme.base.0.opacity(0.30), theme.base.1.opacity(0.36)]),
                 center: c, startRadius: 0, endRadius: R * 1.35))
 
             // Slow drifting nebula clouds.
-            for g in Cloud.all {
+            for (i, g) in Cloud.all.enumerated() {
+                let color = Color(hue: theme.clouds[i % theme.clouds.count], saturation: 0.75, brightness: 0.95)
                 let a = time * g.speed + g.phase
                 let p = CGPoint(x: c.x + cos(a) * R * g.distance, y: c.y + sin(a) * R * g.distance)
                 ctx.fill(disc(p, R * g.size), with: .radialGradient(
-                    Gradient(colors: [g.color.opacity(0.24), g.color.opacity(0)]),
+                    Gradient(colors: [color.opacity(0.24), color.opacity(0)]),
                     center: p, startRadius: 0, endRadius: R * g.size))
             }
 
@@ -173,10 +197,34 @@ struct GalaxyFill: View {
                 let p = CGPoint(x: c.x + dir.dx * R * 0.85, y: c.y + dir.dy * R * 0.85)
                 let k = Double(min(1, strength * 3.2))
                 ctx.fill(disc(p, R), with: .radialGradient(
-                    Gradient(colors: [Color(hue: 0.55, saturation: 0.55, brightness: 1).opacity(0.55 * k),
-                                      Color(hue: 0.78, saturation: 0.70, brightness: 1).opacity(0.28 * k),
+                    Gradient(colors: [Color(hue: theme.glow, saturation: 0.4, brightness: 1).opacity(0.55 * k),
+                                      Color(hue: theme.clouds[0], saturation: 0.70, brightness: 1).opacity(0.28 * k),
                                       .clear]),
                     center: p, startRadius: 0, endRadius: R))
+            }
+
+            // Pulsar: two thin beams sweeping around.
+            if theme.beams {
+                for k in 0..<2 {
+                    let a = time * 2.4 + CGFloat(k) * .pi
+                    var beam = Path()
+                    beam.move(to: c)
+                    beam.addLine(to: CGPoint(x: c.x + cos(a - 0.06) * R * 1.4, y: c.y + sin(a - 0.06) * R * 1.4))
+                    beam.addLine(to: CGPoint(x: c.x + cos(a + 0.06) * R * 1.4, y: c.y + sin(a + 0.06) * R * 1.4))
+                    beam.closeSubpath()
+                    ctx.fill(beam, with: .radialGradient(
+                        Gradient(colors: [Color(hue: 0.52, saturation: 0.3, brightness: 1).opacity(0.35), .clear]),
+                        center: c, startRadius: 0, endRadius: R * 1.3))
+                }
+            }
+
+            // Buco nero: dark core with a warm accretion ring.
+            if theme.accretion {
+                ctx.fill(disc(c, R * 0.55), with: .radialGradient(
+                    Gradient(colors: [Color(hue: 0.07, saturation: 0.8, brightness: 1).opacity(0.45),
+                                      Color(hue: 0.95, saturation: 0.7, brightness: 0.9).opacity(0.15), .clear]),
+                    center: c, startRadius: R * 0.32, endRadius: R * 0.62))
+                ctx.fill(disc(c, R * 0.34), with: .color(.black.opacity(0.85)))
             }
 
             // Star dust in two spiral arms + twinkles.
@@ -186,7 +234,8 @@ struct GalaxyFill: View {
                 let a = d.angle + s * (0.5 + 0.9 / (1 + d.radius * 3))
                 let r = d.radius * R * 1.2
                 let p = CGPoint(x: c.x + cos(a) * r, y: c.y + sin(a) * r)
-                ctx.fill(disc(p, d.size), with: .color(d.color.opacity(d.alpha)))
+                let hue = (theme.dust.start + Double(d.radius) * theme.dust.span).truncatingRemainder(dividingBy: 1)
+                ctx.fill(disc(p, d.size), with: .color(Color(hue: hue, saturation: 0.35, brightness: 1).opacity(d.alpha)))
             }
             for st in Twinkle.all {
                 let o = st.alpha * (0.35 + 0.65 * (0.5 + 0.5 * sin(t * st.speed + st.phase)))
@@ -269,15 +318,15 @@ struct OptionItem: View {
     let dimmed: Bool
     let wide: Bool
     let favorite: Bool
+    let accent: Double
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: 2) {
             ZStack {
                 Circle()
                     .fill(selected ? Color.white : Color.black.opacity(0.46))
                 Circle()
-                    .strokeBorder(Color.white.opacity(selected ? 0 : 0.22),
-                                  style: StrokeStyle(lineWidth: 0.8, dash: item.isSameFormat ? [2.5, 2] : []))
+                    .strokeBorder(Color.white.opacity(selected ? 0 : 0.22), lineWidth: 0.8)
                 if let thumbnail = item.thumbnail {
                     Image(nsImage: thumbnail)
                         .resizable()
@@ -286,23 +335,25 @@ struct OptionItem: View {
                         .clipShape(Circle())
                 } else {
                     Image(systemName: item.symbol)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
+                        .imageScale(.medium)
+                        .frame(width: 20, height: 20)
                         .foregroundStyle(selected ? Color.black : Color.white)
                 }
                 if favorite {
                     Circle()
-                        .fill(Color(hue: 0.55, saturation: 0.5, brightness: 1))
+                        .fill(Color(hue: accent, saturation: 0.5, brightness: 1))
                         .frame(width: 5, height: 5)
-                        .shadow(color: Color(hue: 0.55, saturation: 0.6, brightness: 1), radius: 3)
+                        .shadow(color: Color(hue: accent, saturation: 0.6, brightness: 1), radius: 3)
                         .offset(x: 13, y: -13)
                 }
             }
-            .frame(width: 34, height: 34)
-            .shadow(color: selected ? Color(hue: 0.62, saturation: 0.6, brightness: 1).opacity(0.8) : .black.opacity(0.35),
+            .frame(width: 32, height: 32)
+            .shadow(color: selected ? Color(hue: accent, saturation: 0.6, brightness: 1).opacity(0.8) : .black.opacity(0.35),
                     radius: selected ? 10 : 3)
 
             Text(item.label)
-                .font(.system(size: wide ? 8.5 : 9.5, weight: .bold, design: .rounded))
+                .font(.system(size: wide ? 8.5 : 9, weight: .bold, design: .rounded))
                 .tracking(0.2)
                 .multilineTextAlignment(.center)
                 .lineLimit(wide ? 2 : 1)
@@ -316,38 +367,6 @@ struct OptionItem: View {
         .scaleEffect(selected ? 1.18 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.55), value: selected)
         .animation(.easeOut(duration: 0.15), value: dimmed)
-    }
-}
-
-struct MiniToggle: View {
-    let on: Bool
-    let hover: Bool
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "arrow.down.right.and.arrow.up.left")
-                .font(.system(size: 9, weight: .bold))
-            Text("Mini")
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-            ZStack(alignment: on ? .trailing : .leading) {
-                Capsule()
-                    .fill(on ? Color(hue: 0.58, saturation: 0.55, brightness: 1) : Color.white.opacity(0.22))
-                    .frame(width: 22, height: 12)
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 10, height: 10)
-                    .padding(1)
-            }
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: on)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background(Capsule().fill(Color.black.opacity(hover ? 0.6 : 0.45)))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(hover ? 0.5 : 0.25), lineWidth: 0.8))
-        .shadow(color: .black.opacity(0.3), radius: 4)
-        .scaleEffect(hover ? 1.08 : 1)
-        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
     }
 }
 
@@ -369,7 +388,7 @@ struct CenterContent: View {
         case .idle, .launching:
             if let index = model.selected, index < model.items.count {
                 VStack(spacing: 1) {
-                    Text(model.kind == .paste ? "Incolla" : model.items[index].label)
+                    Text(model.kind == .eco ? "Incolla" : model.items[index].label)
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                     Text(model.holding ? "rilascia" : "clic")
                         .font(.system(size: 8, weight: .medium, design: .rounded))
@@ -378,11 +397,27 @@ struct CenterContent: View {
                 .shadow(color: .black.opacity(0.7), radius: 3)
                 .id(index)
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
-            } else if model.kind == .paste {
+            } else if model.kind == .pulsar || model.kind == .blackHole {
+                VStack(spacing: 3) {
+                    if let icon = model.icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: 24, height: 24)
+                            .opacity(model.kind == .blackHole ? 0.75 : 1)
+                    }
+                    Text(model.kind == .pulsar ? "PULSAR" : "BUCO NERO")
+                        .font(.system(size: 7.5, weight: .bold, design: .rounded))
+                        .tracking(0.6)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .shadow(color: .black.opacity(0.7), radius: 3)
+                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            } else if model.kind == .eco {
                 VStack(spacing: 3) {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 20, weight: .medium))
-                    Text("ULTIMI COPIATI")
+                    Text("ECO")
                         .font(.system(size: 7.5, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                 }
