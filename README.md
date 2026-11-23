@@ -11,15 +11,32 @@ Scarica `Nebula.dmg` dalla pagina Releases, aprilo e trascina Nebula in Applicaz
 
 ## Uso
 
-- **Nel Finder con file selezionati:** tieni premuto ⌥ e la nebula compare subito.
-- **Altrove, o nel Finder senza selezione:** intorno al puntatore parte un caricatore di 1,5 s, poi la nebula lavora su ciò che hai **copiato** (immagini, testo, file). Il risultato va in Download e torna negli appunti.
-- **Scegliere:** punta un formato e **rilascia ⌥**. Se rilasci al centro, la nebula sparisce senza fare nulla.
-- **Strattone:** parti fermo dal centro e scatta in linea retta, veloce, oltre il bordo del blob verso un formato: la nebula si allunga e si dissolve sull'opzione. I movimenti nervosi o che non partono dal centro non contano, e la soglia di velocità si adatta a come muovi il mouse di solito.
-- **Centro = Copia:** un clic sul pulsante al centro copia il file negli appunti, come ⌘C nel Finder.
-- **Interruttore Mini** (sotto la nebula): con Mini attivo, ogni file creato viene anche ridotto di dimensioni. In basso compare in più l'opzione "stesso formato, più piccolo".
-- **⌘Z** subito dopo un'azione la annulla: i file creati finiscono nel Cestino e gli appunti tornano com'erano. Nei 10 secondi successivi all'azione ⌘Z è riservato a Nebula; dopo puoi sempre usare ✦ → Annulla ultima azione.
-- **⌥⌘V tenuto premuto:** compaiono le ultime 3 cose copiate. Punta e rilascia per incollarla.
-- **Abitudini:** per ogni tipo di file, i formati che usi di più salgono piano piano verso le prime posizioni (partendo dall'alto, in senso orario). Il preferito ha un pallino e l'interruttore Mini viene ricordato. Si disattiva o si azzera dalle Impostazioni.
+Nebula ha quattro modalità, ognuna con un gesto suo e un cielo suo.
+
+**Nebula · converte (tieni premuto ⌥)**
+- Nel Finder con file selezionati compare subito. Altrove, o senza selezione, parte un caricatore di 1,5 s intorno al puntatore (premi ⌥ due volte di fila per dimezzarlo), poi la Nebula lavora su ciò che hai copiato. Il risultato va in Download e si aggiunge a Eco, senza toccare gli appunti.
+- Punta un formato e rilascia ⌥. Se rilasci al centro, sparisce senza fare nulla.
+- Strattone: parti fermo dal centro e scatta in linea retta, veloce, oltre il bordo verso un formato.
+- Clic sul pulsante al centro: copia il file come ⌘C.
+
+**Pulsar · modifica (⌥ Spazio, nel Finder)**
+- Tutti i file: Mini (più piccolo, stesso formato quando possibile).
+- PDF: Unisci (più PDF selezionati), Svuota (cancella quanto compilato nei moduli), Password.
+- Video: Taglia, Muto. Audio: Taglia.
+- Immagini: Scontorna (PNG trasparente), Testo (estrae il testo negli appunti), Oscura (sfoca volti e targhe).
+- Cartelle: raggruppa il contenuto in sottocartelle Per tipo o Per mese, rinomina in blocco con Numera ("Cartella 001…"), Per data ("2026-11-23 001…") o Rinomina… con un nome tuo.
+
+**Buco nero · scadenza e pulizia (⌥⌫, nel Finder)**
+- Scadenza 1, 7 o 30 giorni: il file prende un'etichetta Finder con la data e alla scadenza va nel Cestino. Lo segue anche se lo sposti o lo rinomini.
+- Pulisci: toglie GPS, dati della fotocamera, autore e proprietà dei documenti (anche Word, Excel e PowerPoint) e la traccia di dove è stato scaricato.
+
+**Eco · incolla (tieni premuto ⌥⌘V)**
+- Le ultime 3 cose copiate e i file convertiti dagli appunti. Punta e rilascia per incollare.
+
+**Sempre**
+- ⌘Z subito dopo un'azione la annulla. Nei 10 secondi successivi ⌘Z è riservato a Nebula; poi resta disponibile da ✦ → Annulla ultima azione.
+- Abitudini: per ogni tipo di file e modalità, le opzioni che usi di più salgono piano piano verso l'alto e la preferita ha un pallino.
+- Pulsar e Buco nero funzionano solo nel Finder con file selezionati e non intercettano mai i tasti mentre rinomini un file.
 - Se usi ⌥ insieme ad altri tasti o al mouse, funziona come ⌥ normale.
 
 ## AI.md
@@ -55,9 +72,12 @@ Sources/Nebula/
   HotKey.swift           scorciatoie globali (⌥⌘V)
   Clipboard.swift        appunti come sorgente, risultati negli appunti, ultimi 3 copiati
   Loader.swift           caricatore circolare attorno al puntatore
-  Miniaturizer.swift     Mini: file più piccoli
+  Miniaturizer.swift     Mini (in Pulsar): file più piccoli
   Habits.swift           adattamento alle abitudini
   Undo.swift             ⌘Z, appunti ripristinabili, avvisi
+  Tools.swift            Pulsar: PDF, cartelle, video, immagini (Vision)
+  ToolPanels.swift       pannelli password, rinomina, taglio
+  BlackHole.swift        scadenze e pulizia dei metadati
   MarkItDown.swift       AI.md con MarkItDown + convertitore nativo
   Settings.swift         impostazioni e registrazione della scorciatoia
   FinderBridge.swift     selezione del Finder
