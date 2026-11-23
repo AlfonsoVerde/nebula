@@ -132,6 +132,7 @@ struct NebulaView: View {
                            accent: theme.glow)
                     .position(x: Self.side / 2 + shift.width + cos(a) * r,
                               y: Self.side / 2 + shift.height + sin(a) * r)
+                    .scaleEffect(model.emphasis[item.id] ?? 1)
                     .scaleEffect(launched ? 1.7 : (idle ? 1 : 0.6))
                     .opacity(idle ? 1 : 0)
                     .animation(.easeOut(duration: launched ? 0.32 : 0.18), value: model.phase)
@@ -388,9 +389,9 @@ struct CenterContent: View {
         case .idle, .launching:
             if let index = model.selected, index < model.items.count {
                 VStack(spacing: 1) {
-                    Text(model.kind == .eco ? "Incolla" : model.items[index].label)
+                    Text(model.kind == .eco ? tr("Incolla") : model.items[index].label)
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    Text(model.holding ? "rilascia" : "clic")
+                    Text(model.holding ? tr("rilascia") : tr("clic"))
                         .font(.system(size: 8, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.6))
                 }
@@ -406,7 +407,7 @@ struct CenterContent: View {
                             .frame(width: 24, height: 24)
                             .opacity(model.kind == .blackHole ? 0.75 : 1)
                     }
-                    Text(model.kind == .pulsar ? "PULSAR" : "BUCO NERO")
+                    Text(model.kind == .pulsar ? "PULSAR" : tr("Buco nero").uppercased())
                         .font(.system(size: 7.5, weight: .bold, design: .rounded))
                         .tracking(0.6)
                         .foregroundStyle(.white.opacity(0.7))
@@ -417,7 +418,7 @@ struct CenterContent: View {
                 VStack(spacing: 3) {
                     Image(systemName: "doc.on.clipboard")
                         .font(.system(size: 20, weight: .medium))
-                    Text("ECO")
+                    Text(tr("Eco").uppercased())
                         .font(.system(size: 7.5, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.7))
                 }
@@ -440,7 +441,7 @@ struct CenterContent: View {
                         HStack(spacing: 2) {
                             Image(systemName: "doc.on.doc")
                                 .font(.system(size: 7, weight: .bold))
-                            Text("Copia")
+                            Text(tr("Copia"))
                                 .font(.system(size: 8.5, weight: .bold, design: .rounded))
                         }
                     }
@@ -457,7 +458,7 @@ struct CenterContent: View {
                             .interpolation(.high)
                             .frame(width: 26, height: 26)
                     }
-                    Text("APPUNTI · \(model.badge)")
+                    Text(tr("Appunti").uppercased() + " · " + model.badge)
                         .font(.system(size: 7.5, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
@@ -491,7 +492,7 @@ struct CenterContent: View {
                         .foregroundStyle(.white.opacity(0.75))
                 }
                 if model.canUndo {
-                    Text("⌘Z annulla")
+                    Text(tr("⌘Z annulla"))
                         .font(.system(size: 6.5, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.5))
                 }

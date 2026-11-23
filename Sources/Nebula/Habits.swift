@@ -75,6 +75,17 @@ final class Habits {
         return best.key
     }
 
+    /// Share of recent picks per option, once there's enough history (else empty).
+    func likelihood(key: String, ids: [String]) -> [String: Double] {
+        guard enabled, let scores = store.scores[key] else { return [:] }
+        let shown = ids.map { scores[$0] ?? 0 }
+        let total = shown.reduce(0, +)
+        guard total >= 3 else { return [:] }
+        var result: [String: Double] = [:]
+        for (id, score) in zip(ids, shown) { result[id] = score / total }
+        return result
+    }
+
     func mini(for key: String) -> Bool { store.mini[key] ?? false }
 
     func setMini(_ on: Bool, key: String) {

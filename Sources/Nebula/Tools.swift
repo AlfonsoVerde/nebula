@@ -17,25 +17,25 @@ enum Tool: String {
 
     var label: String {
         switch self {
-        case .mini: "Mini"
-        case .pdfMerge: "Unisci"
-        case .pdfBlank: "Svuota"
-        case .pdfLock: "Password"
-        case .groupType: "Per tipo"
-        case .groupDate: "Per mese"
-        case .renameSequence: "Numera"
-        case .renameDate: "Per data"
-        case .renameCustom: "Rinomina…"
-        case .trim: "Taglia"
-        case .mute: "Muto"
-        case .cutout: "Scontorna"
-        case .ocr: "Testo"
-        case .redact: "Oscura"
-        case .expire1: "1 giorno"
-        case .expire7: "7 giorni"
-        case .expire30: "30 giorni"
-        case .unexpire: "Annulla scad."
-        case .clean: "Pulisci"
+        case .mini: tr("Mini")
+        case .pdfMerge: tr("Unisci")
+        case .pdfBlank: tr("Svuota")
+        case .pdfLock: tr("Password")
+        case .groupType: tr("Per tipo")
+        case .groupDate: tr("Per mese")
+        case .renameSequence: tr("Numera")
+        case .renameDate: tr("Per data")
+        case .renameCustom: tr("Rinomina…")
+        case .trim: tr("Taglia")
+        case .mute: tr("Muto")
+        case .cutout: tr("Scontorna")
+        case .ocr: tr("Testo")
+        case .redact: tr("Oscura")
+        case .expire1: tr("1 giorno")
+        case .expire7: tr("7 giorni")
+        case .expire30: tr("30 giorni")
+        case .unexpire: tr("Annulla scad.")
+        case .clean: tr("Pulisci")
         }
     }
 
@@ -115,31 +115,31 @@ enum ToolRunner {
             for (i, file) in files.enumerated() {
                 outs.append(try await Miniaturizer.run(file) { p in progress((Double(i) + p) / Double(files.count)) })
             }
-            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: "Ridotto")
+            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: tr("Ridotto"))
         case .pdfMerge:
             let out = try mergePDFs(files)
-            return ToolResult(outputs: [out], undo: .files([out], restoring: nil), message: "Uniti")
+            return ToolResult(outputs: [out], undo: .files([out], restoring: nil), message: tr("Uniti"))
         case .pdfBlank:
             let out = try blankPDF(files[0])
-            return ToolResult(outputs: [out], undo: .files([out], restoring: nil), message: "Svuotato")
+            return ToolResult(outputs: [out], undo: .files([out], restoring: nil), message: tr("Svuotato"))
         case .groupType, .groupDate:
             let (moves, created) = try group(files, byDate: tool == .groupDate)
-            return ToolResult(undo: .moves(moves, created: created), message: "\(moves.count) spostati")
+            return ToolResult(undo: .moves(moves, created: created), message: tr("%d spostati", moves.count))
         case .renameSequence, .renameDate:
             let moves = try rename(files, base: nil, start: 1, byDate: tool == .renameDate)
-            return ToolResult(undo: .moves(moves, created: []), message: "\(moves.count) rinominati")
+            return ToolResult(undo: .moves(moves, created: []), message: tr("%d rinominati", moves.count))
         case .mute:
             var outs: [URL] = []
             for file in files { outs.append(try await mute(file)) }
-            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: "Muto")
+            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: tr("Muto"))
         case .cutout:
             var outs: [URL] = []
             for file in files { outs.append(try cutout(file)) }
-            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: "Scontornato")
+            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: tr("Scontornato"))
         case .redact:
             var outs: [URL] = []
             for file in files { outs.append(try redact(file)) }
-            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: "Oscurato")
+            return ToolResult(outputs: outs, undo: .files(outs, restoring: nil), message: tr("Oscurato"))
         case .ocr:
             let text = try files.map(recognizeText).joined(separator: "\n\n")
             guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -150,17 +150,17 @@ enum ToolRunner {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
-            return ToolResult(undo: .pasteboard(before), message: "Testo copiato")
+            return ToolResult(undo: .pasteboard(before), message: tr("Testo copiato"))
         case .expire1, .expire7, .expire30:
             let days = tool == .expire1 ? 1 : (tool == .expire7 ? 7 : 30)
             await MainActor.run { ExpiryStore.shared.set(files, days: days) }
-            return ToolResult(undo: .expiry(files), message: "Scade tra \(days) g")
+            return ToolResult(undo: .expiry(files), message: tr("Scade tra %d g", days))
         case .unexpire:
             await MainActor.run { ExpiryStore.shared.remove(files) }
-            return ToolResult(message: "Scadenza tolta")
+            return ToolResult(message: tr("Scadenza tolta"))
         case .clean:
             let pairs = try await MetadataCleaner.clean(files, progress: progress)
-            return ToolResult(undo: .replaced(pairs), message: "Pulito")
+            return ToolResult(undo: .replaced(pairs), message: tr("Pulito"))
         case .pdfLock, .renameCustom, .trim:
             throw ConversionError.failed("Serve il pannello")
         }
@@ -172,19 +172,19 @@ enum ToolRunner {
         let sorted = files.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         let merged = PDFDocument()
         for file in sorted {
-            guard let doc = PDFDocument(url: file) else { throw ConversionError.failed("\(file.lastPathComponent) non è leggibile") }
+            guard let doc = PDFDocument(url: file) else { throw ConversionError.failed(tr("%@ non è leggibile", file.lastPathComponent)) }
             for i in 0..<doc.pageCount {
                 if let page = doc.page(at: i) { merged.insert(page, at: merged.pageCount) }
             }
         }
-        let out = OutputPath.unique(in: OutputPath.directory(for: sorted[0]), base: "Unito", ext: "pdf")
-        guard merged.write(to: out) else { throw ConversionError.failed("Impossibile scrivere il PDF unito") }
+        let out = OutputPath.unique(in: OutputPath.directory(for: sorted[0]), base: tr("Unito"), ext: "pdf")
+        guard merged.write(to: out) else { throw ConversionError.failed("Impossibile salvare il file") }
         return out
     }
 
     /// Clears what was typed into a fillable PDF form.
     static func blankPDF(_ file: URL) throws -> URL {
-        guard let doc = PDFDocument(url: file) else { throw ConversionError.failed("PDF non leggibile") }
+        guard let doc = PDFDocument(url: file) else { throw ConversionError.failed("File non leggibile") }
         var fields = 0
         for i in 0..<doc.pageCount {
             guard let page = doc.page(at: i) else { continue }
@@ -199,16 +199,16 @@ enum ToolRunner {
         guard fields > 0 else {
             throw ConversionError.failed("Questo PDF non ha campi compilabili da svuotare")
         }
-        let out = OutputPath.make(for: file, ext: "pdf", suffix: " (vuoto)")
-        guard doc.write(to: out) else { throw ConversionError.failed("Impossibile scrivere il PDF") }
+        let out = OutputPath.make(for: file, ext: "pdf", suffix: tr(" (vuoto)"))
+        guard doc.write(to: out) else { throw ConversionError.failed("Impossibile salvare il file") }
         return out
     }
 
     static func lockPDF(_ file: URL, password: String) throws -> URL {
-        guard let doc = PDFDocument(url: file) else { throw ConversionError.failed("PDF non leggibile") }
-        let out = OutputPath.make(for: file, ext: "pdf", suffix: " (protetto)")
+        guard let doc = PDFDocument(url: file) else { throw ConversionError.failed("File non leggibile") }
+        let out = OutputPath.make(for: file, ext: "pdf", suffix: tr(" (protetto)"))
         let options: [PDFDocumentWriteOption: Any] = [.userPasswordOption: password, .ownerPasswordOption: password]
-        guard doc.write(to: out, withOptions: options) else { throw ConversionError.failed("Impossibile proteggere il PDF") }
+        guard doc.write(to: out, withOptions: options) else { throw ConversionError.failed("Impossibile salvare il file") }
         return out
     }
 
@@ -226,21 +226,21 @@ enum ToolRunner {
 
     private static func groupName(_ url: URL) -> String {
         switch FileInspector.kind(of: url) {
-        case .image: "Immagini"
-        case .video: "Video"
-        case .audio: "Audio"
+        case .image: tr("Immagini")
+        case .video: tr("Video")
+        case .audio: tr("Audio")
         case .pdf: "PDF"
-        case .richDocument, .office: "Documenti"
-        case .markdown, .plainText: "Testi"
-        case .json, .plist, .csv: "Dati"
-        case .archive: "Archivi"
-        case .folder, .other: "Altro"
+        case .richDocument, .office: tr("Documenti")
+        case .markdown, .plainText: tr("Testi")
+        case .json, .plist, .csv: tr("Dati")
+        case .archive: tr("Archivi")
+        case .folder, .other: tr("Altro")
         }
     }
 
     private static let monthFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "it_IT")
+        f.locale = Locale.autoupdatingCurrent
         f.dateFormat = "yyyy-MM LLLL"
         return f
     }()
@@ -331,9 +331,9 @@ enum ToolRunner {
         let preset = isAudio ? AVAssetExportPresetAppleM4A : AVAssetExportPresetPassthrough
         let (type, ext) = isAudio ? (AVFileType.m4a, "m4a") : fileType(for: file)
         guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
-            throw ConversionError.failed("Impossibile tagliare questo file")
+            throw ConversionError.failed("Elaborazione del file non riuscita")
         }
-        let out = OutputPath.make(for: file, ext: ext, suffix: " (taglio)")
+        let out = OutputPath.make(for: file, ext: ext, suffix: tr(" (taglio)"))
         session.outputURL = out
         session.outputFileType = type
         session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
@@ -348,7 +348,7 @@ enum ToolRunner {
         ticker.cancel()
         guard session.status == .completed else {
             try? FileManager.default.removeItem(at: out)
-            throw session.error ?? ConversionError.failed("Taglio non riuscito")
+            throw session.error ?? ConversionError.failed("Elaborazione del file non riuscita")
         }
         return out
     }
@@ -363,15 +363,15 @@ enum ToolRunner {
             copy?.preferredTransform = try await track.load(.preferredTransform)
         }
         guard let session = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
-            throw ConversionError.failed("Impossibile togliere l'audio")
+            throw ConversionError.failed("Elaborazione del file non riuscita")
         }
-        let out = OutputPath.make(for: file, ext: "mov", suffix: " (muto)")
+        let out = OutputPath.make(for: file, ext: "mov", suffix: tr(" (muto)"))
         session.outputURL = out
         session.outputFileType = .mov
         await session.export()
         guard session.status == .completed else {
             try? FileManager.default.removeItem(at: out)
-            throw session.error ?? ConversionError.failed("Impossibile togliere l'audio")
+            throw session.error ?? ConversionError.failed("Elaborazione del file non riuscita")
         }
         return out
     }
@@ -380,14 +380,14 @@ enum ToolRunner {
 
     private static func orientedImage(_ file: URL) throws -> CIImage {
         guard let image = CIImage(contentsOf: file, options: [.applyOrientationProperty: true]) else {
-            throw ConversionError.failed("Immagine non leggibile")
+            throw ConversionError.failed("File non leggibile")
         }
         return image
     }
 
     private static func render(_ image: CIImage) throws -> CGImage {
         guard let cg = CIContext().createCGImage(image, from: image.extent) else {
-            throw ConversionError.failed("Rendering dell'immagine non riuscito")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         return cg
     }
@@ -402,7 +402,7 @@ enum ToolRunner {
             throw ConversionError.failed("Nessun soggetto riconosciuto")
         }
         let masked = try result.generateMaskedImage(ofInstances: result.allInstances, from: handler, croppedToInstancesExtent: false)
-        let out = OutputPath.make(for: file, ext: "png", suffix: " (scontornata)")
+        let out = OutputPath.make(for: file, ext: "png", suffix: tr(" (scontornata)"))
         try ImageConverter.write(try render(CIImage(cvPixelBuffer: masked)), to: out, uti: UTType.png.identifier)
         return out
     }
@@ -452,7 +452,7 @@ enum ToolRunner {
         var ext = file.pathExtension.lowercased()
         if !["jpg", "jpeg", "png", "heic", "tiff"].contains(ext) { ext = "jpg" }
         if ext == "jpeg" { ext = "jpg" }
-        let out = OutputPath.make(for: file, ext: ext, suffix: " (oscurata)")
+        let out = OutputPath.make(for: file, ext: ext, suffix: tr(" (oscurata)"))
         let uti = UTType(filenameExtension: ext)?.identifier ?? UTType.jpeg.identifier
         try ImageConverter.write(try render(output.cropped(to: extent)), to: out, uti: uti,
                                  props: [kCGImageDestinationLossyCompressionQuality as String: 0.92])

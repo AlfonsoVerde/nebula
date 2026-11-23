@@ -38,7 +38,7 @@ struct Shortcut: Codable, Equatable {
             kVK_F13: "F13", kVK_F14: "F14", kVK_F15: "F15", kVK_F16: "F16", kVK_F17: "F17", kVK_F18: "F18"
         ]
         let special: [Int: String] = [
-            kVK_Space: "Spazio", kVK_Return: "Invio", kVK_Tab: "Tab", kVK_Delete: "⌫",
+            kVK_Space: tr("Spazio"), kVK_Return: tr("Invio"), kVK_Tab: "Tab", kVK_Delete: "⌫",
             kVK_ForwardDelete: "⌦", kVK_LeftArrow: "←", kVK_RightArrow: "→",
             kVK_UpArrow: "↑", kVK_DownArrow: "↓", kVK_Home: "↖", kVK_End: "↘"
         ]

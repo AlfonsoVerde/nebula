@@ -27,6 +27,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Nebula"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp -R Resources/Localization/*.lproj "$APP/Contents/Resources/"
 
 # Optional: standalone MarkItDown produced by CI (see .github/workflows/build.yml)
 if [ -x Resources/markitdown/markitdown ]; then

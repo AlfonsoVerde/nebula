@@ -18,7 +18,7 @@ enum MarkItDown {
     static var isAvailable: Bool { executable != nil }
 
     static func convert(_ src: URL, progress: @escaping ProgressHandler) async throws -> URL {
-        let out = OutputPath.make(for: src, ext: "md", suffix: " (AI)")
+        let out = OutputPath.make(for: src, ext: "md", suffix: tr(" (AI)"))
         let kind = FileInspector.kind(of: src)
 
         if let exe = executable {
@@ -50,7 +50,7 @@ enum NativeMarkdown {
     static func convert(_ src: URL, kind: FileKind) throws -> String {
         switch kind {
         case .pdf:
-            guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("PDF non leggibile") }
+            guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("File non leggibile") }
             var pages: [String] = []
             for i in 0..<doc.pageCount {
                 if let text = doc.page(at: i)?.attributedString { pages.append(markdown(from: text)) }

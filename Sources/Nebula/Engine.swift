@@ -6,8 +6,8 @@ enum ConversionError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unsupported: "Conversione non supportata per questo file"
-        case .failed(let message): message
+        case .unsupported: tr("Conversione non supportata per questo file")
+        case .failed(let message): tr(message)
         }
     }
 }
@@ -148,7 +148,7 @@ enum Archiver {
         let sameParent = files.allSatisfy { $0.deletingLastPathComponent().standardizedFileURL == parent }
         let out = files.count == 1
             ? OutputPath.unique(in: OutputPath.directory(for: files[0]), base: files[0].lastPathComponent, ext: "zip")
-            : OutputPath.unique(in: OutputPath.directory(for: files[0]), base: "Archivio", ext: "zip")
+            : OutputPath.unique(in: OutputPath.directory(for: files[0]), base: tr("Archivio"), ext: "zip")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")

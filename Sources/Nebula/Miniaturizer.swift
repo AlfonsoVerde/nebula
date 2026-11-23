@@ -14,11 +14,11 @@ enum Miniaturizer {
         case .image:
             out = try ImageConverter.miniaturize(src)
         case .video where FileInspector.isNativeMedia(src):
-            out = OutputPath.make(for: src, ext: "mov", suffix: " (mini)")
+            out = OutputPath.make(for: src, ext: "mov", suffix: tr(" (mini)"))
             try await MediaConverter.export(AVURLAsset(url: src), preset: AVAssetExportPresetHEVC1920x1080,
                                             type: .mov, to: out, progress: progress)
         case .audio where FileInspector.isNativeMedia(src):
-            out = OutputPath.make(for: src, ext: "m4a", suffix: " (mini)")
+            out = OutputPath.make(for: src, ext: "m4a", suffix: tr(" (mini)"))
             try await MediaConverter.export(AVURLAsset(url: src), preset: AVAssetExportPresetAppleM4A,
                                             type: .m4a, to: out, progress: progress)
         case .pdf:
@@ -32,7 +32,7 @@ enum Miniaturizer {
 
         if kind != .folder, let before = size(of: src), let after = size(of: out), after >= before {
             try? FileManager.default.removeItem(at: out)
-            throw ConversionError.failed("\(src.lastPathComponent) è già compresso al massimo")
+            throw ConversionError.failed(tr("%@ è già compresso al massimo", src.lastPathComponent))
         }
         return out
     }

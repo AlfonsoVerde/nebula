@@ -9,20 +9,20 @@ enum FileKind: Sendable {
 
     var label: String {
         switch self {
-        case .image: "Immagine"
-        case .video: "Video"
-        case .audio: "Audio"
+        case .image: tr("Immagine")
+        case .video: tr("Video")
+        case .audio: tr("Audio")
         case .pdf: "PDF"
-        case .richDocument: "Documento"
+        case .richDocument: tr("Documento")
         case .office: "Office"
         case .markdown: "Markdown"
-        case .plainText: "Testo"
+        case .plainText: tr("Testo")
         case .json: "JSON"
         case .plist: "Property List"
         case .csv: "CSV"
-        case .archive: "Archivio"
-        case .folder: "Cartella"
-        case .other: "File"
+        case .archive: tr("Archivio")
+        case .folder: tr("Cartella")
+        case .other: tr("File")
         }
     }
 
@@ -118,9 +118,9 @@ enum ConversionCatalog {
     static let zip = ConversionTarget(id: "any.zip", label: "ZIP", ext: "zip", symbol: "doc.zipper", combines: true)
 
     /// Center of the nebula: make the file smaller, keeping its format when possible.
-    static let mini = ConversionTarget(id: "any.mini", label: "Mini", ext: "", symbol: "arrow.down.right.and.arrow.up.left", suffix: " (mini)")
+    static let mini = ConversionTarget(id: "any.mini", label: "Mini", ext: "", symbol: "arrow.down.right.and.arrow.up.left", suffix: tr(" (mini)"))
 
-    private static let ai = ConversionTarget(id: "doc.ai", label: "AI.md", ext: "md", symbol: "sparkles", suffix: " (AI)")
+    private static let ai = ConversionTarget(id: "doc.ai", label: "AI.md", ext: "md", symbol: "sparkles", suffix: tr(" (AI)"))
 
     private static func options(for kind: FileKind) -> [ConversionTarget] {
         switch kind {
@@ -142,7 +142,7 @@ enum ConversionCatalog {
                 t("video.hevc", "HEVC", "mov", "film.stack", suffix: " HEVC"),
                 t("video.gif", "GIF", "gif", "play.square.stack"),
                 t("video.m4a", "M4A", "m4a", "waveform"),
-                t("video.png", "Frame", "png", "photo.on.rectangle", suffix: " frame"),
+                t("video.png", "Frame", "png", "photo.on.rectangle", suffix: tr(" frame")),
                 t("video.webm", "WebM", "webm", "globe", ff: true),
                 t("video.mkv", "MKV", "mkv", "shippingbox", ff: true),
                 t("video.mp3", "MP3", "mp3", "music.note", ff: true)

@@ -22,7 +22,7 @@ enum ImageConverter {
                 let image = NSImage(cgImage: frame.image, size: NSSize(width: frame.image.width, height: frame.image.height))
                 if let page = PDFPage(image: image) { doc.insert(page, at: doc.pageCount) }
             }
-            guard doc.write(to: out) else { throw ConversionError.failed("Impossibile scrivere il PDF") }
+            guard doc.write(to: out) else { throw ConversionError.failed("Impossibile salvare il file") }
             return out
         }
 
@@ -38,7 +38,7 @@ enum ImageConverter {
         if !["jpg", "heic", "png", "gif"].contains(ext) { ext = "jpg" }
         let limit = ext == "gif" ? 480 : (ext == "png" ? 2048 : 2560)
         let (frames, metadata) = try load(src, maxPixel: limit)
-        let out = OutputPath.make(for: src, ext: ext, suffix: " (mini)")
+        let out = OutputPath.make(for: src, ext: ext, suffix: tr(" (mini)"))
         try encode(frames, metadata: metadata, to: out, ext: ext, quality: 0.62)
         return out
     }
@@ -48,7 +48,7 @@ enum ImageConverter {
         let animated = (ext == "gif" || ext == "tiff") && frames.count > 1
         let used = animated ? frames : [frames[0]]
         guard let dest = CGImageDestinationCreateWithURL(out as CFURL, uti as CFString, used.count, nil) else {
-            throw ConversionError.failed("Formato \(ext.uppercased()) non scrivibile su questo Mac")
+            throw ConversionError.failed(tr("Formato %@ non scrivibile su questo Mac", ext.uppercased()))
         }
         if ext == "gif" && animated {
             let loop = [kCGImagePropertyGIFDictionary as String: [kCGImagePropertyGIFLoopCount as String: 0]]
@@ -63,15 +63,15 @@ enum ImageConverter {
             }
             CGImageDestinationAddImage(dest, opaque ? flatten(frame.image) : frame.image, props as CFDictionary)
         }
-        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile scrivere \(ext.uppercased())") }
+        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile salvare il file") }
     }
 
     static func write(_ image: CGImage, to out: URL, uti: String, props: [String: Any] = [:]) throws {
         guard let dest = CGImageDestinationCreateWithURL(out as CFURL, uti as CFString, 1, nil) else {
-            throw ConversionError.failed("Impossibile creare l'immagine")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         CGImageDestinationAddImage(dest, image, props as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile scrivere l'immagine") }
+        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile salvare il file") }
     }
 
     /// Loads all frames with EXIF orientation baked in, keeping EXIF/GPS/IPTC metadata.
@@ -110,20 +110,20 @@ enum ImageConverter {
 
         // Fallback for formats ImageIO can't decode (e.g. SVG): rasterize via NSImage at 2×.
         guard let image = NSImage(contentsOf: src), image.size.width > 0, image.size.height > 0 else {
-            throw ConversionError.failed("Impossibile leggere l'immagine")
+            throw ConversionError.failed("File non leggibile")
         }
         let w = Int(image.size.width * 2), h = Int(image.size.height * 2)
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                          colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
               let context = NSGraphicsContext(bitmapImageRep: rep) else {
-            throw ConversionError.failed("Impossibile rasterizzare l'immagine")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context
         image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
         NSGraphicsContext.restoreGraphicsState()
-        guard let cg = rep.cgImage else { throw ConversionError.failed("Impossibile rasterizzare l'immagine") }
+        guard let cg = rep.cgImage else { throw ConversionError.failed("Impossibile salvare il file") }
         return ([Frame(image: cg, delay: nil)], [:])
     }
 
@@ -150,7 +150,7 @@ enum ImageConverter {
 
 enum PDFConverter {
     static func renderPages(_ src: URL, to t: ConversionTarget, progress: @escaping ProgressHandler) throws -> URL {
-        guard let doc = PDFDocument(url: src), doc.pageCount > 0 else { throw ConversionError.failed("PDF non leggibile") }
+        guard let doc = PDFDocument(url: src), doc.pageCount > 0 else { throw ConversionError.failed("File non leggibile") }
         let uti = t.ext == "png" ? UTType.png.identifier : UTType.jpeg.identifier
         let props: [String: Any] = [kCGImageDestinationLossyCompressionQuality as String: 0.9]
 
@@ -162,7 +162,7 @@ enum PDFConverter {
         let folder = try OutputPath.folder(for: src, suffix: " (\(t.label))")
         for i in 0..<doc.pageCount {
             guard let page = doc.page(at: i) else { continue }
-            let url = folder.appendingPathComponent(String(format: "Pagina %03d", i + 1)).appendingPathExtension(t.ext)
+            let url = folder.appendingPathComponent(tr("Pagina %03d", i + 1)).appendingPathExtension(t.ext)
             try ImageConverter.write(render(page), to: url, uti: uti, props: props)
             progress(Double(i + 1) / Double(doc.pageCount))
         }
@@ -177,27 +177,27 @@ enum PDFConverter {
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else {
-            throw ConversionError.failed("Memoria insufficiente per la pagina")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         ctx.setFillColor(CGColor(gray: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         ctx.scaleBy(x: scale, y: scale)
         page.draw(with: .mediaBox, to: ctx)
-        guard let image = ctx.makeImage() else { throw ConversionError.failed("Rendering della pagina fallito") }
+        guard let image = ctx.makeImage() else { throw ConversionError.failed("Impossibile salvare il file") }
         return image
     }
 
     static func miniaturize(_ src: URL) throws -> URL {
-        guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("PDF non leggibile") }
-        let out = OutputPath.make(for: src, ext: "pdf", suffix: " (mini)")
+        guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("File non leggibile") }
+        let out = OutputPath.make(for: src, ext: "pdf", suffix: tr(" (mini)"))
         let options: [PDFDocumentWriteOption: Any] = [.saveImagesAsJPEGOption: true, .optimizeImagesForScreenOption: true]
-        guard doc.write(to: out, withOptions: options) else { throw ConversionError.failed("Impossibile ridurre il PDF") }
+        guard doc.write(to: out, withOptions: options) else { throw ConversionError.failed("Impossibile salvare il file") }
         return out
     }
 
     @MainActor
     static func exportText(_ src: URL, to t: ConversionTarget) throws -> URL {
-        guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("PDF non leggibile") }
+        guard let doc = PDFDocument(url: src) else { throw ConversionError.failed("File non leggibile") }
         let out = OutputPath.make(for: src, ext: t.ext)
         if t.ext == "txt" {
             try (doc.string ?? "").write(to: out, atomically: true, encoding: .utf8)

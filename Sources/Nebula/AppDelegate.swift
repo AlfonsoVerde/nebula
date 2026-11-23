@@ -47,32 +47,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             .store(in: &cancellables)
 
         pasteKey.onPress = { [weak self] in self?.showEco() }
-        Publishers.CombineLatest(settings.$pasteShortcut, settings.$recording)
-            .sink { [weak self] shortcut, recording in
-                if recording { self?.pasteKey.unregister() } else { self?.pasteKey.register(shortcut) }
+        Publishers.CombineLatest3(settings.$pasteShortcut, settings.$recording, settings.$ecoOn)
+            .sink { [weak self] shortcut, recording, on in
+                if recording || !on { self?.pasteKey.unregister() } else { self?.pasteKey.register(shortcut) }
             }
             .store(in: &cancellables)
 
         pulsarKey.onPress = { [weak self] in self?.showTools(.pulsar) }
         blackHoleKey.onPress = { [weak self] in self?.showTools(.blackHole) }
-        Publishers.CombineLatest3(settings.$pulsarShortcut, settings.$blackHoleShortcut, settings.$recording)
-            .sink { [weak self] pulsar, blackHole, recording in
-                self?.updateFinderKeys(pulsar: pulsar, blackHole: blackHole, recording: recording)
-            }
+        // @Published fires before the value is stored: read the settings on the next turn.
+        Publishers.Merge4(settings.$pulsarShortcut.map { _ in () }, settings.$blackHoleShortcut.map { _ in () },
+                          settings.$recording.map { _ in () },
+                          settings.$pulsarOn.combineLatest(settings.$blackHoleOn).map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.refreshFinderKeys() }
             .store(in: &cancellables)
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification,
                                                           object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.updateFinderKeys(pulsar: self.settings.pulsarShortcut, blackHole: self.settings.blackHoleShortcut,
-                                      recording: self.settings.recording)
-            }
+            MainActor.assumeIsolated { self?.refreshFinderKeys() }
         }
 
         if !Accessibility.isTrusted { Accessibility.prompt() }
         _ = UndoCenter.shared
-        if !UserDefaults.standard.bool(forKey: "launchedV5") {
-            UserDefaults.standard.set(true, forKey: "launchedV5")
+        if !UserDefaults.standard.bool(forKey: "launchedV6") {
+            UserDefaults.standard.set(true, forKey: "launchedV6")
             openSettings()
         }
     }
@@ -85,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Trigger key
 
     private func triggerDown() {
-        guard !settings.recording, !nebula.isVisible, !loader.isActive, NSEvent.pressedMouseButtons == 0 else { return }
+        guard settings.nebulaOn, !settings.recording, !nebula.isVisible, !loader.isActive, NSEvent.pressedMouseButtons == 0 else { return }
 
         // Finder with a selection → nebula right away.
         if FinderBridge.finderIsFrontmost {
@@ -156,15 +154,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Pulsar & Buco nero (Finder only)
 
-    private func updateFinderKeys(pulsar: Shortcut, blackHole: Shortcut, recording: Bool) {
-        let active = !recording && FinderBridge.finderIsFrontmost
-        if active {
-            pulsarKey.register(pulsar)
-            blackHoleKey.register(blackHole)
-        } else {
-            pulsarKey.unregister()
-            blackHoleKey.unregister()
-        }
+    private func refreshFinderKeys() {
+        let active = !settings.recording && FinderBridge.finderIsFrontmost
+        if active && settings.pulsarOn { pulsarKey.register(settings.pulsarShortcut) } else { pulsarKey.unregister() }
+        if active && settings.blackHoleOn { blackHoleKey.register(settings.blackHoleShortcut) } else { blackHoleKey.unregister() }
     }
 
     private func showTools(_ kind: NebulaModel.Kind) {
@@ -204,9 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 80_000_000)
-            guard let self else { return }
-            self.updateFinderKeys(pulsar: self.settings.pulsarShortcut, blackHole: self.settings.blackHoleShortcut,
-                                  recording: self.settings.recording)
+            self?.refreshFinderKeys()
         }
     }
 
@@ -217,8 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
-        panel.message = "Scegli i file da convertire"
-        panel.prompt = "Converti"
+        panel.message = tr("Scegli i file da convertire")
+        panel.prompt = tr("Converti")
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         let center = NSScreen.main.map { NSPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? NSEvent.mouseLocation
         nebula.present(files: panel.urls, fromClipboard: false, at: center, holding: false)
@@ -235,9 +226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func openSettings() {
         if settingsWindow == nil {
             let host = NSHostingView(rootView: SettingsView())
-            let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+            let window = NSWindow(contentRect: NSRect(origin: .zero, size: NSSize(width: 540, height: 720)),
                                   styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "Impostazioni di Nebula"
+            window.title = tr("Impostazioni di Nebula")
             window.contentView = host
             window.isReleasedWhenClosed = false
             window.center()
@@ -262,11 +253,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusItem.button?.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Nebula")
 
         let menu = NSMenu()
-        menu.addItem(item("Apri file…", #selector(openPanel), key: "o"))
-        menu.addItem(item("Annulla ultima azione di Nebula", #selector(undoLast), key: "z"))
-        menu.addItem(item("Impostazioni…", #selector(openSettings), key: ","))
+        menu.addItem(item(tr("Apri file…"), #selector(openPanel), key: "o"))
+        menu.addItem(item(tr("Annulla ultima azione di Nebula"), #selector(undoLast), key: "z"))
+        menu.addItem(item(tr("Impostazioni…"), #selector(openSettings), key: ","))
         menu.addItem(.separator())
-        menu.addItem(item("Esci da Nebula", #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
+        menu.addItem(item(tr("Esci da Nebula"), #selector(NSApplication.terminate(_:)), key: "q", target: NSApp))
         statusItem.menu = menu
     }
 

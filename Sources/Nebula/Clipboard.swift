@@ -37,19 +37,19 @@ enum ClipboardSource {
         let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, jpeg, heic]
         let hasText = pb.string(forType: .string)?.isEmpty == false
         if imageTypes.contains(first) || (!hasText && types.contains(where: { imageTypes.contains($0) })) {
-            if let data = pb.data(forType: .png) { return save(data, "Immagine dagli appunti.png") }
-            if let data = pb.data(forType: jpeg) { return save(data, "Immagine dagli appunti.jpg") }
-            if let data = pb.data(forType: heic) { return save(data, "Immagine dagli appunti.heic") }
+            if let data = pb.data(forType: .png) { return save(data, tr("Immagine dagli appunti") + ".png") }
+            if let data = pb.data(forType: jpeg) { return save(data, tr("Immagine dagli appunti") + ".jpg") }
+            if let data = pb.data(forType: heic) { return save(data, tr("Immagine dagli appunti") + ".heic") }
             if let tiff = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff),
                let png = rep.representation(using: .png, properties: [:]) {
-                return save(png, "Immagine dagli appunti.png")
+                return save(png, tr("Immagine dagli appunti") + ".png")
             }
         }
-        if let rtf = pb.data(forType: .rtf) { return save(rtf, "Testo dagli appunti.rtf") }
-        if let html = pb.string(forType: .html) { return save(Data(html.utf8), "Testo dagli appunti.html") }
+        if let rtf = pb.data(forType: .rtf) { return save(rtf, tr("Testo dagli appunti") + ".rtf") }
+        if let html = pb.string(forType: .html) { return save(Data(html.utf8), tr("Testo dagli appunti") + ".html") }
         if let text = pb.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let looksLikeMarkdown = text.contains("\n# ") || text.hasPrefix("# ") || text.contains("**") || text.contains("\n- ")
-            return save(Data(text.utf8), looksLikeMarkdown ? "Testo dagli appunti.md" : "Testo dagli appunti.txt")
+            return save(Data(text.utf8), tr("Testo dagli appunti") + (looksLikeMarkdown ? ".md" : ".txt"))
         }
         return nil
     }
@@ -112,6 +112,12 @@ final class ClipboardHistory {
         self.timer = timer
     }
 
+    /// Read the clipboard right away (after Nebula wrote to it).
+    func refresh() {
+        lastChange = NSPasteboard.general.changeCount
+        capture()
+    }
+
     private func poll() {
         let count = NSPasteboard.general.changeCount
         guard count != lastChange else { return }
@@ -143,7 +149,7 @@ final class ClipboardHistory {
 
         let label: String, symbol: String, thumbnail: NSImage?, signature: String
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            label = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) file"
+            label = urls.count == 1 ? urls[0].lastPathComponent : tr("%d file", urls.count)
             symbol = "doc"
             thumbnail = NSWorkspace.shared.icon(forFile: urls[0].path)
             signature = "f:" + urls.map(\.path).joined(separator: "|")
@@ -153,7 +159,7 @@ final class ClipboardHistory {
             thumbnail = nil
             signature = "t:" + String(text.prefix(400))
         } else if let image = NSImage(pasteboard: pb) {
-            label = "Immagine"
+            label = tr("Immagine")
             symbol = "photo"
             thumbnail = image
             signature = "i:\(total)"
@@ -192,7 +198,7 @@ final class ClipboardHistory {
             : urls.map { [.fileURL: Data($0.absoluteString.utf8)] }
         let signature = "f:" + urls.map(\.path).joined(separator: "|")
         entries.removeAll { $0.signature == signature }
-        entries.insert(Entry(items: items, label: urls.count == 1 ? url.lastPathComponent : "\(urls.count) file",
+        entries.insert(Entry(items: items, label: urls.count == 1 ? url.lastPathComponent : tr("%d file", urls.count),
                              symbol: "doc", thumbnail: thumbnail, signature: signature), at: 0)
         if entries.count > Self.capacity { entries.removeLast(entries.count - Self.capacity) }
     }

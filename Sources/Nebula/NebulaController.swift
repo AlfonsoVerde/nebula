@@ -64,6 +64,8 @@ final class NebulaModel: ObservableObject {
     let canCopy: Bool
     let favoriteID: String?
     let habitKey: String
+    /// Option size: Eco by position (newest biggest), the others by how likely you are to pick them.
+    let emphasis: [String: CGFloat]
 
     /// Nebula center in screen coordinates.
     var center: NSPoint = .zero
@@ -100,13 +102,21 @@ final class NebulaModel: ObservableObject {
         var targets = ConversionCatalog.targets(for: files)
         let order = Habits.shared.arrange(targets.map(\.id), key: key)
         targets.sort { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
-        items = targets.prefix(Self.maxItems).map {
-            NebulaItem(id: $0.id, label: $0.label, symbol: $0.symbol, thumbnail: nil, action: .convert($0))
+        let list = targets.prefix(Self.maxItems).map {
+            NebulaItem(id: $0.id, label: tr($0.label), symbol: $0.symbol, thumbnail: nil, action: .convert($0))
         }
+        items = list
         canCopy = !fromClipboard
         icon = NSWorkspace.shared.icon(forFile: files[0].path)
         badge = Self.badge(for: files)
         favoriteID = Habits.shared.favorite(key: key)
+        emphasis = Self.emphasis(key: key, ids: list.map(\.id))
+    }
+
+    private static func emphasis(key: String, ids: [String]) -> [String: CGFloat] {
+        let p = Habits.shared.likelihood(key: key, ids: ids)
+        guard let top = p.values.max(), top > 0 else { return [:] }
+        return p.mapValues { 0.9 + 0.32 * CGFloat($0 / top) }
     }
 
     /// Pulsar / Buco nero: tools for the selected files.
@@ -119,13 +129,15 @@ final class NebulaModel: ObservableObject {
         habitKey = key
         let order = Habits.shared.arrange(tools.map(\.rawValue), key: key)
         let sorted = tools.sorted { (order.firstIndex(of: $0.rawValue) ?? 0) < (order.firstIndex(of: $1.rawValue) ?? 0) }
-        items = sorted.prefix(Self.maxItems).map {
+        let list = sorted.prefix(Self.maxItems).map {
             NebulaItem(id: $0.rawValue, label: $0.label, symbol: $0.symbol, thumbnail: nil, action: .tool($0))
         }
+        items = list
         canCopy = false
         icon = NSWorkspace.shared.icon(forFile: files[0].path)
         badge = Self.badge(for: files)
         favoriteID = Habits.shared.favorite(key: key)
+        emphasis = Self.emphasis(key: key, ids: list.map(\.id))
     }
 
     /// Eco: last copied items.
@@ -134,18 +146,23 @@ final class NebulaModel: ObservableObject {
         files = []
         fromClipboard = false
         self.holding = holding
-        items = entries.map {
+        let list = entries.map {
             NebulaItem(id: $0.id.uuidString, label: $0.label, symbol: $0.symbol, thumbnail: $0.thumbnail, action: .paste($0))
         }
+        items = list
         icon = nil
-        badge = "ECO"
+        badge = tr("Eco").uppercased()
         canCopy = false
         favoriteID = nil
         habitKey = ""
+        let sizes: [CGFloat] = [1.16, 1.0, 0.86]
+        var emphasis: [String: CGFloat] = [:]
+        for (i, item) in list.enumerated() { emphasis[item.id] = sizes[min(i, sizes.count - 1)] }
+        self.emphasis = emphasis
     }
 
     private static func badge(for files: [URL]) -> String {
-        guard files.count == 1 else { return "\(files.count) FILE" }
+        guard files.count == 1 else { return tr("%d file", files.count).uppercased() }
         let ext = files[0].pathExtension.uppercased()
         return ext.isEmpty ? FileInspector.kind(of: files[0]).label.uppercased() : ext
     }
@@ -326,7 +343,7 @@ final class NebulaModel: ObservableObject {
         canUndo = true
         NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
         selected = nil
-        message = files.count == 1 ? "Copiato" : "\(files.count) copiati"
+        message = files.count == 1 ? tr("Copiato") : tr("%d copiati", files.count)
         phase = .done
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 900_000_000)
@@ -403,10 +420,16 @@ final class NebulaModel: ObservableObject {
                 let outs = try await ConversionEngine.run(target, on: files) { p in
                     Task { @MainActor in box.value?.bump(p) }
                 }
-                // From the clipboard: the result joins the Eco queue, the clipboard stays as it was.
-                if fromClipboard { ClipboardHistory.shared.add(files: outs) }
-                UndoCenter.shared.register(.files(outs, restoring: nil))
-                self?.finish(outputs: outs, message: fromClipboard ? "In Eco" : "Mostra")
+                // From the clipboard: the result becomes what you paste (Eco #1),
+                // the original moves to Eco #2, what you copied before to #3.
+                var before: PasteboardSnapshot?
+                if fromClipboard {
+                    before = PasteboardSnapshot.capture()
+                    ClipboardWriter.put(outs)
+                    ClipboardHistory.shared.refresh()
+                }
+                UndoCenter.shared.register(.files(outs, restoring: before))
+                self?.finish(outputs: outs, message: fromClipboard ? tr("Pronto da incollare") : tr("Mostra"))
             } catch {
                 self?.fail(error)
             }

@@ -31,8 +31,8 @@ final class ExpiryStore {
 
     private static let tagFormatter: DateFormatter = {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "it_IT")
-        f.dateFormat = "d MMM"
+        f.locale = Locale.autoupdatingCurrent
+        f.setLocalizedDateFormatFromTemplate("d MMM")
         return f
     }()
 
@@ -68,7 +68,7 @@ final class ExpiryStore {
     func set(_ urls: [URL], days: Int) {
         remove(urls, persist: false)
         let expires = Date().addingTimeInterval(TimeInterval(days) * 86_400)
-        let tag = "⏳ scade il \(Self.tagFormatter.string(from: expires))"
+        let tag = "⏳ " + tr("scade il %@", Self.tagFormatter.string(from: expires))
         for url in urls {
             guard let bookmark = try? url.bookmarkData() else { continue }
             records.append(Record(bookmark: bookmark, path: url.standardizedFileURL.path, expires: expires, tag: tag))
@@ -109,7 +109,7 @@ final class ExpiryStore {
         var current: AnyObject?
         try? ns.getResourceValue(&current, forKey: .tagNamesKey)
         var tags = (current as? [String]) ?? []
-        tags.removeAll { $0.hasPrefix("⏳ scade") }
+        tags.removeAll { $0.hasPrefix("⏳") }
         if adding { tags.append(tag) }
         try? ns.setResourceValue(tags, forKey: .tagNamesKey)
     }
@@ -163,7 +163,7 @@ enum MetadataCleaner {
     /// Lossless copy of the image data with empty metadata (orientation kept).
     private static func image(_ url: URL) throws {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), let type = CGImageSourceGetType(source) else {
-            throw ConversionError.failed("Immagine non leggibile")
+            throw ConversionError.failed("File non leggibile")
         }
         let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
         let orientation = props?[kCGImagePropertyOrientation as String]
@@ -197,15 +197,15 @@ enum MetadataCleaner {
             if let orientation { frameProps[kCGImagePropertyOrientation as String] = orientation }
             CGImageDestinationAddImage(dest, image, frameProps as CFDictionary)
         }
-        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Pulizia non riuscita") }
+        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile salvare il file") }
         try replace(url, with: tmp)
     }
 
     private static func pdf(_ url: URL) throws {
-        guard let doc = PDFDocument(url: url) else { throw ConversionError.failed("PDF non leggibile") }
+        guard let doc = PDFDocument(url: url) else { throw ConversionError.failed("File non leggibile") }
         doc.documentAttributes = [:]
         let tmp = temporary(next: url)
-        guard doc.write(to: tmp) else { throw ConversionError.failed("Pulizia del PDF non riuscita") }
+        guard doc.write(to: tmp) else { throw ConversionError.failed("Impossibile salvare il file") }
         try replace(url, with: tmp)
     }
 

@@ -89,7 +89,7 @@ final class UndoCenter {
         case .expiry(let urls):
             ExpiryStore.shared.remove(urls)
         }
-        Toast.show("Annullato", symbol: "arrow.uturn.backward")
+        Toast.show(tr("Annullato"), symbol: "arrow.uturn.backward")
         return true
     }
 }

@@ -90,7 +90,7 @@ enum DocumentConverter {
         let operation = NSPrintOperation(view: view, printInfo: info)
         operation.showsPrintPanel = false
         operation.showsProgressPanel = false
-        guard operation.run() else { throw ConversionError.failed("Creazione del PDF non riuscita") }
+        guard operation.run() else { throw ConversionError.failed("Impossibile salvare il file") }
     }
 }
 

@@ -15,7 +15,7 @@ final class ToolPanelController {
             view = AnyView(PasswordView(onDone: { [weak self] password in
                 self?.close()
                 guard let password else { return }
-                Self.run(message: "Protetto") {
+                Self.run(message: tr("Protetto")) {
                     let out = try ToolRunner.lockPDF(files[0], password: password)
                     return .files([out], restoring: nil)
                 }
@@ -24,7 +24,7 @@ final class ToolPanelController {
             view = AnyView(RenameView(folders: files, onDone: { [weak self] base, start in
                 self?.close()
                 guard let base else { return }
-                Self.run(message: "Rinominati") {
+                Self.run(message: tr("Rinominati")) {
                     .moves(try ToolRunner.rename(files, base: base, start: start, byDate: false), created: [])
                 }
             }))
@@ -36,7 +36,7 @@ final class ToolPanelController {
                     do {
                         let out = try await ToolRunner.trim(files[0], from: range.lowerBound, to: range.upperBound) { _ in }
                         UndoCenter.shared.register(.files([out], restoring: nil))
-                        Toast.show("Tagliato · ⌘Z annulla", symbol: "scissors")
+                        Toast.show(tr("Tagliato") + " · " + tr("⌘Z annulla"), symbol: "scissors")
                     } catch {
                         Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle")
                     }
@@ -69,7 +69,7 @@ final class ToolPanelController {
     private static func run(message: String, _ work: @escaping () throws -> UndoCenter.Action) {
         do {
             UndoCenter.shared.register(try work())
-            Toast.show("\(message) · ⌘Z annulla", symbol: "checkmark")
+            Toast.show(message + " · " + tr("⌘Z annulla"), symbol: "checkmark")
         } catch {
             Toast.show(error.localizedDescription, symbol: "exclamationmark.triangle")
         }
@@ -99,10 +99,10 @@ private struct PanelButtons: View {
 
     var body: some View {
         HStack {
-            Button("Annulla", action: onCancel)
+            Button(tr("Annulla"), action: onCancel)
                 .keyboardShortcut(.cancelAction)
             Spacer()
-            Button(confirm, action: onConfirm)
+            Button(tr(confirm), action: onConfirm)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!enabled)
         }
@@ -117,12 +117,12 @@ struct PasswordView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Proteggi con password", systemImage: "lock")
+            Label(tr("Proteggi con password"), systemImage: "lock")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
-            SecureField("Password", text: $password)
-            SecureField("Ripeti la password", text: $repeated)
+            SecureField(tr("Password"), text: $password)
+            SecureField(tr("Ripeti la password"), text: $repeated)
             if !repeated.isEmpty && repeated != password {
-                Text("Le password non coincidono").font(.caption).foregroundStyle(.orange)
+                Text(tr("Le password non coincidono")).font(.caption).foregroundStyle(.orange)
             }
             PanelButtons(confirm: "Proteggi", enabled: !password.isEmpty && password == repeated,
                          onCancel: { onDone(nil) }, onConfirm: { onDone(password) })
@@ -138,17 +138,17 @@ struct RenameView: View {
     @State private var start = 1
 
     private var example: String {
-        let name = base.isEmpty ? "Nome" : base
+        let name = base.isEmpty ? tr("Nome") : base
         return "\(name) \(String(format: "%03d", start)).jpg, \(name) \(String(format: "%03d", start + 1)).jpg…"
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Rinomina i file della cartella", systemImage: "character.cursor.ibeam")
+            Label(tr("Rinomina i file della cartella"), systemImage: "character.cursor.ibeam")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
-            TextField("Nome", text: $base)
+            TextField(tr("Nome"), text: $base)
                 .textFieldStyle(.roundedBorder)
-            Stepper("Parti da \(start)", value: $start, in: 0...9999)
+            Stepper(tr("Parti da %d", start), value: $start, in: 0...9999)
             Text(example)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -182,7 +182,7 @@ struct TrimView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Taglia", systemImage: "scissors")
+            Label(tr("Taglia"), systemImage: "scissors")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
 
             ZStack(alignment: .leading) {
@@ -227,7 +227,7 @@ struct TrimView: View {
             HStack {
                 Text(time(lower))
                 Spacer()
-                Text("durata \(time(upper - lower))").foregroundStyle(.secondary)
+                Text(tr("durata %@", time(upper - lower))).foregroundStyle(.secondary)
                 Spacer()
                 Text(time(upper))
             }

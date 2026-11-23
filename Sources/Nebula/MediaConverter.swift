@@ -47,7 +47,7 @@ enum MediaConverter {
     static func export(_ asset: AVAsset, preset: String, type: AVFileType, to out: URL,
                        progress: @escaping ProgressHandler) async throws {
         guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
-            throw ConversionError.failed("Questo file non si può esportare con questo formato")
+            throw ConversionError.failed("Elaborazione del file non riuscita")
         }
         session.outputURL = out
         session.outputFileType = type
@@ -64,14 +64,14 @@ enum MediaConverter {
 
         guard session.status == .completed else {
             try? FileManager.default.removeItem(at: out)
-            throw session.error ?? ConversionError.failed("Esportazione non riuscita")
+            throw session.error ?? ConversionError.failed("Elaborazione del file non riuscita")
         }
     }
 
     /// Video → animated GIF (max 15 s, 12 fps, 520 px).
     static func makeGIF(_ asset: AVAsset, to out: URL, progress: @escaping ProgressHandler) async throws {
         let duration = try await asset.load(.duration).seconds
-        guard duration.isFinite, duration > 0 else { throw ConversionError.failed("Durata del video non valida") }
+        guard duration.isFinite, duration > 0 else { throw ConversionError.failed("Elaborazione del file non riuscita") }
 
         let fps = 12.0
         let count = max(1, Int(min(duration, 15) * fps))
@@ -83,7 +83,7 @@ enum MediaConverter {
         generator.requestedTimeToleranceAfter = tolerance
 
         guard let dest = CGImageDestinationCreateWithURL(out as CFURL, UTType.gif.identifier as CFString, count, nil) else {
-            throw ConversionError.failed("Impossibile creare la GIF")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         let loop = [kCGImagePropertyGIFDictionary as String: [kCGImagePropertyGIFLoopCount as String: 0]]
         CGImageDestinationSetProperties(dest, loop as CFDictionary)
@@ -98,7 +98,7 @@ enum MediaConverter {
             CGImageDestinationAddImage(dest, image, frameProps)
             progress(Double(i + 1) / Double(count))
         }
-        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile scrivere la GIF") }
+        guard CGImageDestinationFinalize(dest) else { throw ConversionError.failed("Impossibile salvare il file") }
     }
 
     /// Grabs a frame (at 1 s, or mid-clip for very short videos) as PNG.
@@ -127,7 +127,7 @@ enum MediaConverter {
         let output = try AVAudioFile(forWriting: out, settings: settings,
                                      commonFormat: .pcmFormatFloat32, interleaved: false)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 32_768) else {
-            throw ConversionError.failed("Buffer audio non disponibile")
+            throw ConversionError.failed("Impossibile salvare il file")
         }
         let total = Double(max(input.length, 1))
         while input.framePosition < input.length {

@@ -8,8 +8,8 @@ enum TriggerKey: String, CaseIterable, Codable, Identifiable {
 
     var title: String {
         switch self {
-        case .option: "⌥ Option"
-        case .rightOption: "⌥ Option destro"
+        case .option: tr("⌥ Option")
+        case .rightOption: tr("⌥ Option destro")
         case .control: "⌃ Control"
         case .function: "fn / 🌐"
         }
